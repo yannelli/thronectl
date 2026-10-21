@@ -6,3 +6,4 @@ daemon/node_modules/
 daemon/dist/
 *.log
 .DS_Store
+daemon/dist-test/
