@@ -34,13 +34,13 @@ void ListView::draw(Canvas& c, const std::function<void(Canvas&, int, int, int, 
   int w = SCREEN_W - (scroll ? 4 : 0);
   for (int i = 0; i < vis && first + i < count; i++) {
     int idx = first + i;
-    int ry = y + i * rowH;
+    int rh = rowHeight(), ry = y + i * rh;
     bool s = idx == sel;
     if (s) {
-      c.fillRect(0, ry, w, rowH, t.sel);
-      c.fillRect(0, ry, 2, rowH, t.accent);
+      c.fillRect(0, ry, w, rh, t.sel);
+      c.fillRect(0, ry, 2, rh, t.accent);
     }
-    row(c, idx, 0, ry, w, rowH, s);
+    row(c, idx, 0, ry + ROW_PAD / 2, w, rh - ROW_PAD, s);
   }
   if (scroll) {
     int th = h * vis / count;
@@ -85,6 +85,7 @@ bool TextInput::onKey(const KeyEvent& e) {
   if (e.key == K_UP && e.fn) { cursor = 0; return true; }
   if (e.key == K_DOWN && e.fn) { cursor = text.size(); return true; }
   if (e.key == K_TAB && multiline) { insert("  "); return true; }
+  if (e.key == '`' && !e.opt) return false;  // Esc keycap: the screen goes back
   if (e.isChar() && !e.ctrl && !e.alt && !e.fn) {
     if (text.size() < maxLen) insert(std::string(1, e.ch()));
     return true;
@@ -96,7 +97,8 @@ void TextInput::draw(Canvas& c, int x, int y, int w, int h, bool focused) {
   const Theme& t = T();
   c.fillRoundRect(x, y, w, h, 3, t.panel);
   c.drawRoundRect(x, y, w, h, 3, focused ? t.accent : t.panel2);
-  const int cw = 6, lh = 9;
+  c.setFont(F::mono);
+  const int cw = c.textWidth("M"), lh = c.fontHeight() + 1;
   int cols = (w - 6) / cw, rows = (h - 4) / lh;
   if (cols < 1 || rows < 1) return;
   std::string shown = mask ? std::string(text.size(), '*') : text;
@@ -120,17 +122,16 @@ void TextInput::draw(Canvas& c, int x, int y, int w, int h, bool focused) {
   for (int l = 0; l < (int)starts.size(); l++) lines.push_back(lineText(l));
   int firstLine = curLine >= rows ? curLine - rows + 1 : 0;
   int hScroll = (!multiline && curCol >= cols) ? curCol - cols + 1 : 0;
-  c.setFont(F::small);
   for (int r = 0; r < rows && firstLine + r < (int)lines.size(); r++) {
     std::string s = lines[firstLine + r];
     if (hScroll) s = s.substr(hScroll);
-    gfx::text(c, F::small, x + 3, y + 3 + r * lh, s.substr(0, cols), t.fg);
+    gfx::text(c, F::mono, x + 3, y + 3 + r * lh, s.substr(0, cols), t.fg);
   }
   if (focused && (nowMs() / 500) % 2 == 0) {
     int cx = x + 3 + (curCol - hScroll) * cw, cy = y + 2 + (curLine - firstLine) * lh;
     c.fillRect(cx, cy, 2, lh, t.accent);
   }
-  if (text.empty() && !focused) gfx::text(c, F::small, x + 3, y + 3, "...", t.dim);
+  if (text.empty() && !focused) gfx::text(c, F::mono, x + 3, y + 3, "...", t.dim);
 }
 
 void TextView::set(Canvas& c, const std::string& text, int width, const Font* font) {

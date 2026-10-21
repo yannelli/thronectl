@@ -43,6 +43,8 @@ export interface NotifyEvent {
   title: string;
   body: string;
   agent?: string;
+  /** For "done": how long the turn ran, so devices can skip short turns. */
+  secs?: number;
 }
 
 /** How to show an agent in a terminal view. */

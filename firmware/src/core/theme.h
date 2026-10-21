@@ -22,6 +22,9 @@ extern const int ACCENT_COUNT;
 
 const Theme& T();
 void applyTheme(int themeIdx, int accentIdx);
+/** 0 small (more on screen), 1 normal (larger fonts and rows). Sets the fonts in F and the layout sizes. */
+void applyTextSize(int size);
+bool largeText();
 
 uint16_t blend(uint16_t a, uint16_t b, uint8_t alpha);  // alpha 0 = a, 255 = b
 
@@ -32,4 +35,6 @@ extern const Font* bold;    // titles
 extern const Font* big;     // large numbers
 extern const Font* huge;    // pairing code, splash
 extern const Font* tiny;    // 4x6 terminal font
+extern const Font* mono;    // fixed width, for text fields
+extern const Font* const glcd;  // 6x8 terminal cells, same in every text size
 }  // namespace F

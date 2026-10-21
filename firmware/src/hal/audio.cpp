@@ -14,6 +14,11 @@ void AudioHal::begin() {
 
 void AudioHal::setVolume(uint8_t v) { M5.Speaker.setVolume(v); }
 
+void AudioHal::setMix(uint8_t alerts, uint8_t voice) {
+  M5.Speaker.setChannelVolume(CH_CHIME, alerts);
+  M5.Speaker.setChannelVolume(CH_STREAM, voice);
+}
+
 void AudioHal::click() {
   uint8_t mode = settings().keyClick;
   if (!mode || mic_ || streaming_) return;

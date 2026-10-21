@@ -32,6 +32,9 @@ inline uint16_t navKey(const KeyEvent& e) {
   }
 }
 
+/** The Esc keycap (` alone) or fn+`. Goes back on every screen, text fields too; Opt+` types a backtick. */
+inline bool isEscape(const KeyEvent& e) { return e.key == K_ESC || (e.key == '`' && e.plain()); }
+
 inline bool isBack(const KeyEvent& e) {
   uint16_t n = navKey(e);
   return n == K_ESC || n == K_BKSP;

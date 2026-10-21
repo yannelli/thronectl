@@ -16,8 +16,8 @@ Services& svc() { return g_svc; }
 void App::begin() {
   Settings& s = settings();
   applyTheme(s.theme, s.accent);
+  applyTextSize(s.textSize);
   applySound();
-  svc().sys->setCpuMhz(CPU_VALUES[s.cpuMhz % 3]);
   if (s.tz > 0) svc().sys->setTimezone(TZ_POSIX[s.tz]);
   lastActivity_ = nowMs();
   applyDisplay();
@@ -32,14 +32,68 @@ void App::begin() {
 void App::applyDisplay() {
   Settings& s = settings();
   svc().sys->setRotationFlipped(s.flip);
+  static const uint8_t DIM_DIV[] = {12, 6, 3, 2};
   uint8_t b = s.brightness;
+  if (lowBatt_ && b > 96) b = 96;
   if (screenOff_) b = 0;
-  else if (dimmed_) b = b / 6 < 4 ? 4 : b / 6;
+  else if (dimmed_) b = b / DIM_DIV[s.dimLevel % 4] < 4 ? 4 : b / DIM_DIV[s.dimLevel % 4];
   svc().sys->setBrightness(b);
 }
 
 void App::applySound() {
-  svc().audio->setVolume(settings().volume);
+  const Settings& s = settings();
+  svc().audio->setVolume(s.muted ? 0 : s.volume);
+  svc().audio->setMix(s.alertVol, s.voiceVol);
+}
+
+bool App::quietNow() const {
+  const Settings& s = settings();
+  if (s.dnd) return true;
+  int q = s.quietHours % 5, h, m, sec;
+  if (!q || !svc().sys->localTime(h, m, sec)) return false;
+  int from = QUIET_FROM[q], to = QUIET_TO[q];
+  return from > to ? (h >= from || h < to) : (h >= from && h < to);
+}
+
+bool App::alertWanted(const std::string& kind, int secs) const {
+  const Settings& s = settings();
+  if (kind == "attn") return s.notifyAttn;
+  if (kind == "error") return s.notifyErr;
+  if (kind != "done") return true;
+  int d = s.notifyDone % 4;
+  return d != 3 && (secs < 0 || secs >= NOTIFY_DONE_SECS[d]);
+}
+
+/** Opt+- and Opt+= change the volume; Opt+[ and Opt+] change the brightness. */
+void App::nudge(int dVolume, int dBrightness) {
+  Settings& s = settings();
+  char b[32];
+  if (dVolume) {
+    int v = s.volume + dVolume;
+    s.volume = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+    s.muted = false;
+    applySound();
+    svc().audio->chime(CH_INFO);
+    snprintf(b, sizeof b, "Volume %d%%", (s.volume * 100 + 127) / 255);
+  } else {
+    int v = s.brightness + dBrightness;
+    s.brightness = (uint8_t)(v < 8 ? 8 : v > 255 ? 255 : v);
+    applyDisplay();
+    snprintf(b, sizeof b, "Brightness %d%%", (s.brightness * 100 + 127) / 255);
+  }
+  settingsSave();
+  ui().toast("info", b, "", 900);
+}
+
+void App::remindWaiting(uint32_t now) {
+  uint32_t every = REMIND_MS[settings().remindWaiting % 4];
+  if (!every || !store().countStatus("waiting") || !settings().notifyAttn) { remindAt_ = now; return; }
+  if (elapsedMs(now, remindAt_) < every) return;
+  remindAt_ = now;
+  if (quietNow()) return;
+  svc().audio->chime(CH_ATTN);
+  ledFlashColor_ = T().warn;
+  ledFlashUntil_ = now + 2000;
 }
 
 void App::activity() {
@@ -64,8 +118,15 @@ void App::onKey(const KeyEvent& e) {
       case 'n': ui().push(makeNewAgent("")); return;
       case 't': ui().push(makeTerminal("", "shell")); return;
       case 's': ui().push(makeSettings()); return;
-      case 'm': settings().volume = settings().volume ? 0 : 140; applySound(); settingsSave();
-        ui().toast("info", settings().volume ? "Sound on" : "Muted"); return;
+      case 'm': settings().muted = !settings().muted; applySound(); settingsSave();
+        ui().toast("info", settings().muted ? "Muted" : "Sound on", "", 1200); return;
+      case 'd': settings().dnd = !settings().dnd; settingsSave();
+        ui().toast("info", settings().dnd ? "Do not disturb on" : "Do not disturb off", settings().dnd ? "Alerts stay silent." : "", 1500); return;
+      case '-': nudge(-16, 0); return;
+      case '=': nudge(16, 0); return;
+      case '[': nudge(0, -24); return;
+      case ']': nudge(0, 24); return;
+      case 'k': ui().push(makeKeyHelp()); return;
       default: break;
     }
   }
@@ -86,6 +147,14 @@ void App::connectDefault() {
   if (HostEntry* h = settings().defaultHostEntry()) svc().link->connectHost(*h);
 }
 
+int App::reconnectIn(uint32_t now) const {
+  Settings& s = settings();
+  LinkState st = svc().link->state();
+  bool idle = st == LinkState::Offline || st == LinkState::Failed;
+  if (!idle || !s.autoConnect || manualOffline_ || !s.defaultHostEntry() || svc().net->wifiState() != WifiState::Connected) return -1;
+  return (int32_t)(nextReconnect_ - now) <= 0 ? 0 : (int)((nextReconnect_ - now + 999) / 1000);
+}
+
 void App::manualDisconnect() {
   manualOffline_ = true;
   svc().link->disconnect();
@@ -94,11 +163,81 @@ void App::manualDisconnect() {
 void App::resubscribe() {
   JsonDocument p;
   JsonArray topics = p["topics"].to<JsonArray>();
-  topics.add("stats");
+  statsMs_ = statsInterval();
+  if (statsMs_) topics.add("stats");
   topics.add("agents");
   topics.add("notify");
-  p["ms"] = STATS_MS[settings().statsRate % 3];
+  if (statsMs_) p["ms"] = statsMs_;
   svc().link->call("sub", p, [](bool, JsonVariantConst, const char*) {});
+}
+
+uint32_t App::statsInterval() const {
+  const Settings& s = settings();
+  uint32_t active = STATS_MS[s.statsRate % 3];
+  uint32_t dimmed = s.statsDim % 4 ? STATS_DIM_MS[s.statsDim % 4] : active;
+  uint32_t ms = active;
+  Screen* base = ui().base();
+  bool dash = base && base->wantsStats();
+  if (display() == Display::Dimmed || (!dash && dimmed > active)) ms = dimmed;
+  else if (display() == Display::Off) ms = s.statsOff % 4 == 3 ? 0 : s.statsOff % 4 ? STATS_OFF_MS[s.statsOff % 4] : dimmed;
+  if (lowBatt_ && ms && ms < 10000) ms = 10000;
+  return ms;
+}
+
+uint32_t App::loopDelayMs() const {
+  if (voice.active() || svc().audio->speaking() || updater().active()) return 1;
+  return screenOff_ ? 20 : dimmed_ ? 5 : 1;
+}
+
+/** Applies CPU speed, Wi-Fi power save and the stats rate when the display state or a setting changes. */
+void App::updatePower(uint32_t now) {
+  const Settings& s = settings();
+  Display d = display();
+  bool busy = voice.active() || updater().active();
+  uint32_t key = (uint32_t)d | s.cpuMhz << 2 | s.cpuSave << 4 | s.wifiSave << 6 | s.statsRate << 8 | s.statsDim << 10 |
+                 s.statsOff << 12 | (lowBatt_ ? 1u : 0u) << 14 | (busy ? 1u : 0u) << 15 | 1u << 16;
+  Screen* base = ui().base();
+  if (base && base->wantsStats()) key |= 1u << 17;
+  if (key == powerKey_) return;
+  powerKey_ = key;
+  bool slow = lowBatt_ || (s.cpuSave == 2 && d != Display::Active) || (s.cpuSave == 1 && d == Display::Off);
+  svc().sys->setCpuMhz(slow && !busy ? 80 : CPU_VALUES[s.cpuMhz % 3]);
+  uint8_t ps = s.wifiSave % 4 == 3 ? (d == Display::Off ? 2 : 1) : s.wifiSave % 4;
+  if (lowBatt_ && ps < 2) ps = 2;
+  svc().net->setPowerSave(busy ? 0 : ps);
+  if (svc().link->ready() && statsInterval() != statsMs_) resubscribe();
+}
+
+void App::checkBattery(uint32_t now) {
+  if (battAt_ && elapsedMs(now, battAt_) < 5000) return;
+  battAt_ = now;
+  const Settings& s = settings();
+  SystemApi* sys = svc().sys;
+  int pct = sys->batteryPct();
+  bool plugged = sys->charging() || pct < 0;
+  bool low = s.lowBattSave && !plugged && pct <= (lowBatt_ ? 25 : 20);
+  if (low != lowBatt_) {
+    lowBatt_ = low;
+    applyDisplay();
+    if (low) ui().toast("attn", "Battery saver on", std::to_string(pct) + "% left. CPU, Wi-Fi and stats slow down.");
+  }
+  if (!plugged && pct <= 10 && !battWarned_) {
+    battWarned_ = true;
+    svc().audio->chime(CH_ATTN);
+    ui().toast("attn", "Battery low", std::to_string(pct) + "% left. Plug in soon.", 6000);
+  } else if (plugged || pct > 15) battWarned_ = false;
+  if (s.battAutoOff && !plugged && pct <= 3) {
+    if (!shutdownAt_) {
+      shutdownAt_ = (now + 15000) | 1;
+      activity();
+      svc().audio->chime(CH_FAIL);
+      ui().toast("error", "Battery empty", "Turning off in 15 s. Plug in to stay on.", 15000);
+    }
+  } else shutdownAt_ = 0;
+  if (shutdownAt_ && (int32_t)(now - shutdownAt_) >= 0) {
+    settingsSave();
+    sys->powerOff();
+  }
 }
 
 void App::onLinkState(LinkState st) {
@@ -170,9 +309,13 @@ void App::handleNotify(JsonVariantConst d) {
   n.agent = d["agent"] | "";
   n.at = nowMs();
   store().addNotice(n);
-  bool attn = n.kind == "attn" || n.kind == "error";
-  if (s.wakeOnNotify && (attn || n.kind == "done")) activity();
+  // A filtered alert still lands in Notifications, with no toast, sound or wake.
+  if (!alertWanted(n.kind, d["secs"] | -1)) return;
+  bool attn = n.kind == "attn" || n.kind == "error", quiet = quietNow();
+  if (n.kind == "attn") remindAt_ = n.at;
+  if (s.wakeOnNotify && !quiet && (attn || n.kind == "done")) activity();
   ui().toast(n.kind, n.title, n.body);
+  if (quiet) return;
   if (s.notifySound == 0 || (s.notifySound == 1 && attn)) {
     svc().audio->chime(n.kind == "done" ? CH_DONE : n.kind == "attn" ? CH_ATTN : n.kind == "error" ? CH_ERROR : CH_INFO);
   }
@@ -277,13 +420,19 @@ void App::loop(uint32_t now) {
   }
   voice.update(now);
   updater().update(now);
+  if (updater().phase() != updatePhase_) {
+    updatePhase_ = updater().phase();
+    if (updatePhase_ == UpdatePhase::Failed) ui().toast("error", "Update failed", updater().error());
+    else if (updatePhase_ == UpdatePhase::Done && updater().toSd()) ui().toast("done", "Update saved to SD", "Install it from Launcher.");
+  }
   if (updater().restartDue(now)) {
     settingsSave();
     sv.sys->reboot();
   }
   uint32_t quiet = elapsedMs(now, lastActivity_);
   uint32_t dimMs = DIM_MS[s.dimAfter % 6], offMs = OFF_MS[s.offAfter % 6];
-  if (voice.active() || sv.audio->speaking() || updater().active()) lastActivity_ = now;
+  bool watching = s.termAwake && !dimmed_ && !screenOff_ && termSink && elapsedMs(now, termAt_) < 2000;
+  if (voice.active() || sv.audio->speaking() || updater().active() || watching) lastActivity_ = now;
   else if (!screenOff_ && offMs && quiet > offMs) {
     screenOff_ = true;
     applyDisplay();
@@ -291,5 +440,8 @@ void App::loop(uint32_t now) {
     dimmed_ = true;
     applyDisplay();
   }
+  checkBattery(now);
+  remindWaiting(now);
+  updatePower(now);
   updateLed(now);
 }

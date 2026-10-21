@@ -14,8 +14,22 @@ OPTS(SPEAK_OPTS, "Off", "When done", "Done + attention");
 OPTS(MIC_GAIN_OPTS, "Low", "Normal", "High", "Max");
 OPTS(STATS_OPTS, "1 s", "2 s", "5 s");
 OPTS(CPU_OPTS, "240 MHz", "160 MHz", "80 MHz");
+OPTS(CPU_SAVE_OPTS, "Off", "When screen off", "When dimmed or off");
+OPTS(WIFI_SAVE_OPTS, "Off", "Light", "Max", "Max when off");
+OPTS(STATS_DIM_OPTS, "Same as active", "5 s", "10 s", "30 s");
+OPTS(STATS_OFF_OPTS, "Same as dimmed", "30 s", "2 min", "Paused");
+OPTS(DIM_LEVEL_OPTS, "Very low", "Low", "Medium", "High");
+OPTS(QUIET_OPTS, "Off", "22:00 to 7:00", "23:00 to 8:00", "21:00 to 6:00", "20:00 to 9:00");
+const uint8_t QUIET_FROM[] = {0, 22, 23, 21, 20}, QUIET_TO[] = {0, 7, 8, 6, 9};
+OPTS(NOTIFY_DONE_OPTS, "Every turn", "Turns over 30 s", "Turns over 2 min", "Off");
+const uint16_t NOTIFY_DONE_SECS[] = {0, 30, 120, 0};
+OPTS(REMIND_OPTS, "Off", "Every 1 min", "Every 2 min", "Every 5 min");
+const uint32_t REMIND_MS[] = {0, 60000, 120000, 300000};
 OPTS(PTT_OPTS, "Hold to talk", "Tap to toggle");
 OPTS(TERM_FONT_OPTS, "Small 60x20", "Normal 40x15");
+OPTS(TEXT_SIZE_OPTS, "Small", "Normal");
+OPTS(DASH_CYCLE_OPTS, "Off", "10 s", "30 s", "1 min");
+const uint32_t DASH_CYCLE_MS[] = {0, 10000, 30000, 60000};
 OPTS(REPEAT_DELAY_OPTS, "Short", "Medium", "Long");
 OPTS(REPEAT_RATE_OPTS, "Fast", "Medium", "Slow");
 OPTS(TZ_NAMES, "From host", "UTC", "US Eastern", "US Central", "US Mountain", "US Arizona", "US Pacific", "Alaska",
@@ -31,6 +45,8 @@ const char* const TZ_POSIX[] = {"", "UTC0", "EST5EDT,M3.2.0,M11.1.0", "CST6CDT,M
 const uint32_t DIM_MS[] = {0, 15000, 30000, 60000, 120000, 300000};
 const uint32_t OFF_MS[] = {0, 60000, 120000, 300000, 600000, 1800000};
 const uint32_t STATS_MS[] = {1000, 2000, 5000};
+const uint32_t STATS_DIM_MS[] = {0, 5000, 10000, 30000};
+const uint32_t STATS_OFF_MS[] = {0, 30000, 120000, 0};
 const uint32_t REPEAT_DELAY_MS[] = {250, 400, 600};
 const uint32_t REPEAT_RATE_MS[] = {35, 60, 100};
 const uint8_t MIC_GAIN_VALUES[] = {8, 16, 28, 48};
@@ -119,7 +135,9 @@ void Settings::forgetWifi(const std::string& ssid) {
   X(clock24) X(splash) X(showBattPct) X(ledMode) X(ledBright) X(volume) X(keyClick) X(notifySound) \
   X(startupChime) X(wakeOnNotify) X(toastSecs) X(speakReplies) X(micGain) X(pttMode) X(autoSend)   \
   X(tz) X(autoConnect) X(confirmKill) X(attachAfterCreate) X(showExited) X(statsRate) X(cpuMhz)    \
-  X(repeatDelay) X(repeatRate)
+  X(repeatDelay) X(repeatRate) X(textSize) X(dashCycle) \
+  X(cpuSave) X(wifiSave) X(statsDim) X(statsOff) X(dimLevel) X(lowBattSave) X(battAutoOff) X(alertVol)    \
+  X(voiceVol) X(muted) X(dnd) X(quietHours) X(notifyDone) X(notifyAttn) X(notifyErr) X(remindWaiting) X(termAwake)
 
 #define STR_FIELDS(X) X(ttsVoice) X(deviceName) X(defaultHost) X(lastHarness) X(lastProject) X(lastMode)
 

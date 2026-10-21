@@ -16,6 +16,12 @@ std::string Net::ip() const { return st_ == WifiState::Connected ? WiFi.localIP(
 int Net::rssi() const { return st_ == WifiState::Connected ? WiFi.RSSI() : -100; }
 std::string Net::mac() const { return WiFi.macAddress().c_str(); }
 
+void Net::setPowerSave(uint8_t level) {
+  if (level == powerSave_) return;
+  powerSave_ = level;
+  WiFi.setSleep(level == 0 ? WIFI_PS_NONE : level == 1 ? WIFI_PS_MIN_MODEM : WIFI_PS_MAX_MODEM);
+}
+
 void Net::connectWifi(const std::string& ssid, const std::string& pass) {
   fromSaved_ = false;
   ssid_ = ssid;

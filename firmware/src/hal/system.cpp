@@ -44,7 +44,10 @@ void SystemHal::setLed(uint16_t c, uint8_t level) {
   M5.Led.setAllColor(r, g, b);
 }
 
-void SystemHal::setCpuMhz(uint16_t mhz) { setCpuFrequencyMhz(mhz); }
+void SystemHal::setCpuMhz(uint16_t mhz) {
+  // 240, 160 and 80 MHz keep Wi-Fi running; the crystal speeds below 80 MHz stop it.
+  if (mhz >= 80 && mhz != getCpuFrequencyMhz()) setCpuFrequencyMhz(mhz);
+}
 uint32_t SystemHal::freeHeap() const { return ESP.getFreeHeap(); }
 uint32_t SystemHal::minFreeHeap() const { return ESP.getMinFreeHeap(); }
 

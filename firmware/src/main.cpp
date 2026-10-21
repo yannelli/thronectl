@@ -83,5 +83,5 @@ void loop() {
     ui().render(*canvas);
     canvas->pushSprite(0, 0);
   }
-  delay(1);
+  delay(app().loopDelayMs());
 }

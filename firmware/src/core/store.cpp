@@ -34,6 +34,8 @@ void Store::applyStats(JsonVariantConst d) {
   stats = n;
   cpuHist[histPos] = n.cpu;
   memHist[histPos] = n.mem[1] ? 100.0f * n.mem[0] / n.mem[1] : 0;
+  rxHist[histPos] = (float)n.net[0];
+  txHist[histPos] = (float)n.net[1];
   histPos = (histPos + 1) % HIST;
   if (histLen < HIST) histLen++;
 }

@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import xterm from "@xterm/headless";
 import pty from "node-pty";
+import { checkSpawn, ensureSpawnHelper, explainSpawnError } from "./spawn.js";
 
 type XTerminal = InstanceType<typeof xterm.Terminal>;
 type IPty = ReturnType<typeof pty.spawn>;
@@ -48,7 +49,13 @@ export class PtyTerm extends EventEmitter {
     this.setMaxListeners(50);
     this.term = new xterm.Terminal({ cols: opts.cols, rows: opts.rows, scrollback: 2000, allowProposedApi: true });
     const env = { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor", ...opts.env } as Record<string, string>;
-    this.proc = pty.spawn(cmd, args, { name: "xterm-256color", cols: opts.cols, rows: opts.rows, cwd: opts.cwd, env });
+    ensureSpawnHelper();
+    checkSpawn(cmd, opts.cwd);
+    try {
+      this.proc = pty.spawn(cmd, args, { name: "xterm-256color", cols: opts.cols, rows: opts.rows, cwd: opts.cwd, env });
+    } catch (e) {
+      throw explainSpawnError(e, cmd);
+    }
     this.proc.onData((d) => {
       this.lastOutput = Date.now();
       const show = d.lastIndexOf("\x1b[?25h"), hide = d.lastIndexOf("\x1b[?25l");

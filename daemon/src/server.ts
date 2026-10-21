@@ -20,6 +20,8 @@ import { describeTts } from "./voice/tts.js";
 import { which } from "./env.js";
 
 const log = logger("daemon");
+/** How often the stats timer checks which sessions are due. */
+const STATS_TICK_MS = 500;
 
 export class Daemon {
   cfg: Config;
@@ -35,6 +37,7 @@ export class Daemon {
   private udp?: UdpSocket;
   private control?: Server;
   private statsTimer?: NodeJS.Timeout;
+  private sampling = false;
 
   constructor() {
     this.cfg = loadConfig();
@@ -68,7 +71,7 @@ export class Daemon {
     }
     this.control = startControlServer(this.controlHandlers(), { "pair.watch": (s) => this.watchPairing(s) });
     this.agents.startPolling();
-    this.statsTimer = setInterval(() => void this.sampleStats(), Math.max(1000, this.cfg.statsMs));
+    this.statsTimer = setInterval(() => void this.sampleStats(), STATS_TICK_MS);
     void this.sampleStats();
     log.info(`speech-to-text: ${describeStt(this.cfg)}; text-to-speech: ${describeTts(this.cfg)}`);
   }
@@ -82,10 +85,20 @@ export class Daemon {
     this.agents.shutdown();
   }
 
+  /** Samples only when a session is due, so each device gets stats at the rate it set in `sub`. */
   private async sampleStats(): Promise<void> {
-    if (![...this.sessions].some((s) => s.topics.has("stats")) && this.sampler.latest) return;
+    if (this.sampling) return;
+    const now = Date.now();
+    const due = [...this.sessions].filter((s) => s.statsDue(now));
+    if (!due.length && this.sampler.latest) return;
+    this.sampling = true;
     const stats = await this.sampler.sample().catch((e: Error) => { log.warn("stats failed", e); return undefined; });
-    if (stats) this.broadcast("stats", "stats", stats);
+    this.sampling = false;
+    if (!stats) return;
+    for (const s of due) {
+      s.statsAt = now;
+      s.event("stats", stats);
+    }
   }
 
   private broadcast(topic: string, event: string, data: unknown): void {
@@ -147,7 +160,10 @@ export class Daemon {
     return {
       status: () => ({
         host: this.hostInfo(), port: this.cfg.port,
-        connected: [...this.sessions].map((s) => ({ id: s.device.id, name: s.device.name, addr: s.ch.remote, fw: s.device.fw, since: s.since })),
+        connected: [...this.sessions].map((s) => ({
+          id: s.device.id, name: s.device.name, addr: s.ch.remote, fw: s.device.fw, since: s.since,
+          stats: s.topics.has("stats") ? s.statsMs : 0,
+        })),
         agents: this.agents.counts(), stt: describeStt(this.cfg), tts: describeTts(this.cfg), pending: this.broker.pending(),
       }),
       "devices.list": () => this.devices.list().map((d) => ({ ...d, online: [...this.sessions].some((s) => s.device.id === d.id) })),

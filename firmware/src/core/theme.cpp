@@ -14,6 +14,10 @@ const Theme THEMES[] = {
   {"Matrix",       rgb(0x000800), rgb(0x001A00), rgb(0x002A00), rgb(0xB6FFB6), rgb(0x3D7A3D), rgb(0x00FF41), rgb(0x7CFC00), rgb(0x00FF41), rgb(0xD4FF00), rgb(0xFF4040), rgb(0x003D00), rgb(0xE8FFE8)},
   {"Amber CRT",    rgb(0x120A00), rgb(0x1E1200), rgb(0x2A1A00), rgb(0xFFB000), rgb(0x8A5F00), rgb(0xFFCC00), rgb(0xFF8C00), rgb(0xFFD54F), rgb(0xFFA000), rgb(0xFF5722), rgb(0x3A2400), rgb(0xFFE0A0)},
   {"Paper",        rgb(0xF5F1E8), rgb(0xE8E2D4), rgb(0xDCD4C2), rgb(0x1F1A14), rgb(0x7A705F), rgb(0xC2410C), rgb(0x1D4ED8), rgb(0x15803D), rgb(0xB45309), rgb(0xB91C1C), rgb(0xD6CCB4), rgb(0x000000)},
+  // "Absolutely": claude.ai light and dark tokens with the Claude clay accent, plus a near-black variant.
+  {"Absolutely Light", rgb(0xFAF9F5), rgb(0xF0EEE6), rgb(0xE3E1D8), rgb(0x141413), rgb(0x73726C), rgb(0xC6613F), rgb(0x2C84DB), rgb(0x2F7613), rgb(0x875A08), rgb(0xB53333), rgb(0xE8E6DC), rgb(0x141413)},
+  {"Absolutely Dark",  rgb(0x262624), rgb(0x30302E), rgb(0x3D3D3A), rgb(0xFAF9F5), rgb(0x9C9A92), rgb(0xD97757), rgb(0x74ABE2), rgb(0x65BB30), rgb(0xDA9E25), rgb(0xFE8181), rgb(0x41403C), rgb(0xFAF9F5)},
+  {"Absolutely Black", rgb(0x141413), rgb(0x1F1E1D), rgb(0x2C2C2A), rgb(0xF8F8F6), rgb(0x97958C), rgb(0xD97757), rgb(0x74ABE2), rgb(0x65BB30), rgb(0xDA9E25), rgb(0xFE8181), rgb(0x30302E), rgb(0xFFFFFF)},
 };
 const int THEME_COUNT = sizeof(THEMES) / sizeof(THEMES[0]);
 
@@ -28,6 +32,7 @@ const Accent ACCENTS[] = {
   {"Blue", rgb(0x60A5FA)},
   {"Violet", rgb(0xA78BFA)},
   {"White", rgb(0xF5F5F5)},
+  {"Clay", rgb(0xD97757)},
 };
 const int ACCENT_COUNT = sizeof(ACCENTS) / sizeof(ACCENTS[0]);
 
@@ -57,4 +62,24 @@ const Font* bold = &lgfx::fonts::DejaVu12;
 const Font* big = &lgfx::fonts::DejaVu18;
 const Font* huge = &lgfx::fonts::DejaVu24;
 const Font* tiny = &lgfx::fonts::TomThumb;
+const Font* mono = &lgfx::fonts::Font0;
+const Font* const glcd = &lgfx::fonts::Font0;
 }  // namespace F
+
+static bool g_large = false;
+bool largeText() { return g_large; }
+
+void applyTextSize(int size) {
+  g_large = size == 1;
+  using namespace lgfx::fonts;
+  F::small = g_large ? (const Font*)&DejaVu9 : &Font0;
+  F::text = g_large ? &DejaVu12 : &DejaVu9;
+  F::bold = g_large ? (const Font*)&FreeSansBold9pt7b : &DejaVu12;
+  F::big = g_large ? &DejaVu24 : &DejaVu18;
+  F::mono = g_large ? (const Font*)&AsciiFont8x16 : &Font0;
+  STATUS_H = g_large ? 14 : 12;
+  HINT_H = g_large ? 12 : 10;
+  HEADER_H = g_large ? 21 : 16;
+  LINE_H = g_large ? 14 : 11;
+  ROW_PAD = g_large ? 4 : 0;
+}

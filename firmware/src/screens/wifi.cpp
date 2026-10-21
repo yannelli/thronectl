@@ -16,7 +16,7 @@ struct Net {
 class Wifi : public Screen {
  public:
   Wifi() {
-    list_.y = STATUS_H + 16 + 11;
+    list_.y = STATUS_H + HEADER_H + LINE_H;
     list_.h = SCREEN_H - HINT_H - list_.y;
     list_.rowH = 13;
   }
@@ -88,7 +88,7 @@ class Wifi : public Screen {
     } else if (st == WifiState::Connecting) info = "Joining " + n->ssid() + "...";
     else if (st == WifiState::Failed) { info = "Join failed"; col = t.err; }
     else info = "Not connected";
-    gfx::text(c, F::small, 4, STATUS_H + 18, gfx::ellipsize(c, F::small, info, SCREEN_W - 8), col);
+    gfx::text(c, F::small, 4, STATUS_H + HEADER_H + 2, gfx::ellipsize(c, F::small, info, SCREEN_W - 8), col);
     if (nets_.empty()) {
       if (scanning_) gfx::spinner(c, SCREEN_W / 2, 80, 8, nowMs(), t.accent);
       else gfx::text(c, F::text, SCREEN_W / 2, 76, "No networks found. Press r.", t.dim, gfx::Datum::top_center);
@@ -101,9 +101,10 @@ class Wifi : public Screen {
         cv.drawRoundRect(x + 21, y + 3, 5, 4, 2, t.dim);
         cv.fillRect(x + 20, y + 6, 7, 5, t.dim);
       }
-      gfx::text(cv, F::text, x + 31, y + 2, gfx::ellipsize(cv, F::text, net.ssid, w - 90), sel ? t.selFg : t.fg);
-      if (cur) gfx::chip(cv, x + w - 64, y + 2, "connected", t.bg, t.ok);
-      else if (net.saved) gfx::chip(cv, x + w - 40, y + 2, "saved", t.fg, t.panel2);
+      const char* tag = cur ? "connected" : net.saved ? "saved" : "";
+      int tw = *tag ? gfx::width(cv, F::small, tag) + 10 : 0;
+      gfx::text(cv, F::text, x + 31, y + 1, gfx::ellipsize(cv, F::text, net.ssid, w - 36 - tw), sel ? t.selFg : t.fg);
+      if (*tag) gfx::chip(cv, x + w - tw + 2, y + 2, tag, cur ? t.bg : t.fg, cur ? t.ok : t.panel2);
     });
     gfx::hints(c, {{"ent", "join"}, {"r", "scan"}, {"h", "hidden"}, {"x", "forget"}, {"d", "drop"}});
   }

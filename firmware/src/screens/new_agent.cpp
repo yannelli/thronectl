@@ -16,7 +16,7 @@ class NewAgent : public Screen {
   explicit NewAgent(const std::string& prompt) {
     prompt_.multiline = true;
     prompt_.set(prompt);
-    list_.y = STATUS_H + 16;
+    list_.y = STATUS_H + HEADER_H;
     list_.h = SCREEN_H - HINT_H - list_.y;
     list_.rowH = 16;
   }
@@ -33,7 +33,10 @@ class NewAgent : public Screen {
   }
 
   bool onKey(const KeyEvent& e) override {
-    if (step_ == LAUNCH) return true;
+    if (step_ == LAUNCH) {
+      if (isEscape(e)) ui().pop();  // the launch goes on; its toast still shows
+      return true;
+    }
     if (step_ == PROMPT) return promptKey(e);
     if (list_.onKey(e)) return true;
     if (isBack(e)) { back(); return true; }
@@ -177,7 +180,7 @@ class NewAgent : public Screen {
   }
 
   bool promptKey(const KeyEvent& e) {
-    if (e.key == K_ESC || (e.key == '`' && e.plain() && prompt_.text.empty())) { back(); return true; }
+    if (isEscape(e)) { back(); return true; }
     if (e.key == K_ENTER && !e.shift) { launch(); return true; }
     if (e.key == K_TAB) {
       ui().input("Agent name", name_, false, guard([this](const std::string& v) { name_ = v; }), "Empty = derive from the prompt.");
@@ -203,18 +206,21 @@ class NewAgent : public Screen {
     p["name"] = name_.c_str();
     p["mode"] = mode_.c_str();
     std::string title = name_.empty() ? h->name : name_;
-    svc().link->call("agent.create", p, guard([this, title](bool ok, JsonVariantConst r, const char* err) {
+    auto retry = guard([this] { step_ = PROMPT; });
+    auto open = guard([](const std::string& id, const std::string& name) {
+      if (settings().attachAfterCreate) ui().replace(makeTerminal(id, name));
+      else ui().replace(makeAgent(id));
+    });
+    svc().link->call("agent.create", p, [retry, open, title](bool ok, JsonVariantConst r, const char* err) mutable {
       if (!ok) {
         ui().toast("error", "Launch failed", err ? err : "");
-        step_ = PROMPT;
-        return;
+        return retry();
       }
       std::string id = r["id"] | "";
       ui().toast("done", "Agent started", title);
       svc().audio->chime(CH_OK);
-      if (settings().attachAfterCreate) ui().replace(makeTerminal(id, title));
-      else ui().replace(makeAgent(id));
-    }), 45000);
+      open(id, title);
+    }, 45000);
   }
 
   void drawHarness(Canvas& c) {
@@ -272,7 +278,7 @@ class NewAgent : public Screen {
   void drawPrompt(Canvas& c) {
     const Theme& t = T();
     const Harness* h = harness();
-    int y = STATUS_H + 18;
+    int y = STATUS_H + HEADER_H + 2;
     int x = 4 + gfx::chip(c, 4, y, h ? h->name : "?", t.bg, h ? h->color : t.dim) + 4;
     std::string info = baseName(cwd_);
     if (!mode_.empty()) info += "  " + mode_;
@@ -280,7 +286,7 @@ class NewAgent : public Screen {
     gfx::text(c, F::small, x, y + 1, gfx::ellipsize(c, F::small, info, SCREEN_W - x - 4), t.dim);
     prompt_.draw(c, 3, y + 13, SCREEN_W - 6, SCREEN_H - HINT_H - y - 15, true);
     if (prompt_.text.empty()) gfx::text(c, F::small, 9, y + 17, "What should it do? Or hold G0 and say it.", t.dim);
-    gfx::hints(c, {{"ent", "launch"}, {"sh+ent", "newline"}, {"tab", "name"}, {"fn+`", "back"}});
+    gfx::hints(c, {{"ent", "launch"}, {"sh+ent", "newline"}, {"tab", "name"}, {"`", "back"}});
   }
 
   void drawLaunch(Canvas& c) {

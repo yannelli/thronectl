@@ -164,7 +164,7 @@ void mic(Canvas& c, int cx, int cy, int h, uint16_t color) {
 int chip(Canvas& c, int x, int y, const std::string& s, uint16_t fg, uint16_t bg) {
   c.setFont(F::small);
   int w = c.textWidth(s.c_str()) + 6;
-  c.fillRoundRect(x, y, w, 10, 3, bg);
+  c.fillRoundRect(x, y, w, c.fontHeight() + 2, 3, bg);
   text(c, F::small, x + 3, y + 1, s, fg);
   return w;
 }
@@ -175,13 +175,14 @@ void hints(Canvas& c, std::initializer_list<Hint> items) {
   c.fillRect(0, y, SCREEN_W, HINT_H, t.panel);
   int x = 3;
   c.setFont(F::small);
+  int ty = y + (HINT_H - c.fontHeight()) / 2;
   for (const Hint& h : items) {
     int kw = c.textWidth(h.key) + 4;
     int lw = c.textWidth(h.label);
     if (x + kw + 2 + lw > SCREEN_W - 2) break;
-    c.fillRoundRect(x, y + 1, kw, 8, 2, t.panel2);
-    text(c, F::small, x + 2, y + 1, h.key, t.accent);
-    text(c, F::small, x + kw + 2, y + 1, h.label, t.dim);
+    c.fillRoundRect(x, y + 1, kw, HINT_H - 2, 2, t.panel2);
+    text(c, F::small, x + 2, ty, h.key, t.accent);
+    text(c, F::small, x + kw + 2, ty, h.label, t.dim);
     x += kw + 2 + lw + 6;
   }
 }
@@ -189,19 +190,20 @@ void hints(Canvas& c, std::initializer_list<Hint> items) {
 void header(Canvas& c, const std::string& title, const std::string& right) {
   const Theme& t = T();
   int y = STATUS_H;
-  c.fillRect(0, y, SCREEN_W, 16, t.panel2);
-  c.fillRect(0, y, 3, 16, t.accent);
+  c.fillRect(0, y, SCREEN_W, HEADER_H, t.panel2);
+  c.fillRect(0, y, 3, HEADER_H, t.accent);
   int rw = right.empty() ? 0 : width(c, F::small, right) + 6;
-  text(c, F::bold, 7, y + 2, ellipsize(c, F::bold, title, SCREEN_W - 12 - rw), t.fg);
-  if (rw) text(c, F::small, SCREEN_W - 4, y + 4, right, t.dim, Datum::top_right);
+  text(c, F::bold, 7, y + (HEADER_H - height(c, F::bold)) / 2, ellipsize(c, F::bold, title, SCREEN_W - 12 - rw), t.fg);
+  if (rw) text(c, F::small, SCREEN_W - 4, y + (HEADER_H - height(c, F::small)) / 2, right, t.dim, Datum::top_right);
 }
 
 void emptyState(Canvas& c, const char* title, const char* body) {
   const Theme& t = T();
-  int cy = (STATUS_H + 16 + SCREEN_H - HINT_H) / 2;
-  text(c, F::bold, SCREEN_W / 2, cy - 12, title, t.fg, Datum::top_center);
   auto lines = wrap(c, F::text, body, SCREEN_W - 30, 3);
-  for (size_t i = 0; i < lines.size(); i++) text(c, F::text, SCREEN_W / 2, cy + 4 + (int)i * 11, lines[i], t.dim, Datum::top_center);
+  int th = height(c, F::bold) + 4, total = th + (int)lines.size() * LINE_H;
+  int y = (STATUS_H + HEADER_H + SCREEN_H - HINT_H - total) / 2;
+  text(c, F::bold, SCREEN_W / 2, y, title, t.fg, Datum::top_center);
+  for (size_t i = 0; i < lines.size(); i++) text(c, F::text, SCREEN_W / 2, y + th + (int)i * LINE_H, lines[i], t.dim, Datum::top_center);
 }
 
 }  // namespace gfx

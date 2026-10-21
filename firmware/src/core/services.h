@@ -67,6 +67,8 @@ class NetApi {
   virtual void startDiscovery() = 0;
   virtual bool discovering() const = 0;
   virtual const std::vector<Beacon>& beacons() const = 0;
+  /** 0 off, 1 light (modem sleep between beacons), 2 max (skips beacons, slower replies). */
+  virtual void setPowerSave(uint8_t level) {}
 };
 
 enum Chime : uint8_t { CH_STARTUP, CH_DONE, CH_ATTN, CH_ERROR, CH_INFO, CH_OK, CH_FAIL, CH_REC_START, CH_REC_STOP };
@@ -75,6 +77,8 @@ class AudioApi {
  public:
   virtual ~AudioApi() {}
   virtual void setVolume(uint8_t v) = 0;
+  /** Levels for chimes and for streamed speech, each scaled by the master volume. */
+  virtual void setMix(uint8_t alerts, uint8_t voice) {}
   virtual void click() = 0;
   virtual void chime(Chime kind) = 0;
   virtual bool micStart(uint8_t gain) = 0;
@@ -137,6 +141,9 @@ class OtaApi {
   virtual uint32_t openSd(const std::string& path) = 0;
   virtual int readSd(uint8_t* buf, size_t len) = 0;
   virtual void closeSd() = 0;
+  /** Small whole-file reads and writes on the card, for the settings backup. */
+  virtual bool sdWriteFile(const std::string& path, const std::string& data) { return false; }
+  virtual bool sdReadFile(const std::string& path, std::string& out) { return false; }
 };
 
 struct Services {

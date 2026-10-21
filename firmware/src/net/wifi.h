@@ -22,6 +22,7 @@ class Net : public NetApi {
   void startDiscovery() override;
   bool discovering() const override { return discoverUntil_ != 0; }
   const std::vector<Beacon>& beacons() const override { return beacons_; }
+  void setPowerSave(uint8_t level) override;
 
   /** Called once each time the station gets an IP. */
   std::function<void()> onConnected;
@@ -39,5 +40,6 @@ class Net : public NetApi {
   bool udpOpen_ = false;
   uint32_t discoverUntil_ = 0, probeAt_ = 0;
   int probes_ = 0;
+  int powerSave_ = -1;
   std::vector<Beacon> beacons_;
 };

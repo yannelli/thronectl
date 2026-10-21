@@ -13,7 +13,9 @@ class ListView {
   bool onKey(const KeyEvent& e);
   void clamp();
   void draw(Canvas& c, const std::function<void(Canvas&, int idx, int x, int y, int w, int h, bool selected)>& row);
-  int visible() const { return h / rowH; }
+  /** rowH plus the text-size padding. */
+  int rowHeight() const { return rowH + ROW_PAD; }
+  int visible() const { return h / rowHeight(); }
 };
 
 /** Single or multi-line text editor with a cursor. */

@@ -13,6 +13,8 @@ class Screen {
   virtual void draw(Canvas& c) = 0;
   virtual bool statusBar() const { return true; }
   virtual bool isModal() const { return false; }
+  /** True for screens that show live host stats; others get them at the slower dimmed rate. */
+  virtual bool wantsStats() const { return false; }
   /** Voice transcript for this screen. Return false to use the default (new agent). */
   virtual bool onVoiceText(const std::string& text) { return false; }
   /** Short label shown while recording, e.g. "to fix login". */
@@ -44,6 +46,12 @@ class UI {
   void home();
   Screen* top() const { return stack_.empty() ? nullptr : stack_.back(); }
   size_t depth() const { return stack_.size(); }
+  /** The top screen that is not a modal dialog: the one visible under any dialogs. */
+  Screen* base() const {
+    for (auto it = stack_.rbegin(); it != stack_.rend(); ++it)
+      if (!(*it)->isModal()) return *it;
+    return nullptr;
+  }
 
   void handleKey(const KeyEvent& e);
   void tick(uint32_t now);

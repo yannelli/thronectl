@@ -29,6 +29,7 @@ class AudioHal : public AudioApi {
   void loop(uint32_t now);
 
   void setVolume(uint8_t v) override;
+  void setMix(uint8_t alerts, uint8_t voice) override;
   void click() override;
   void chime(Chime kind) override;
   bool micStart(uint8_t gain) override;
@@ -125,6 +126,8 @@ class OtaHal : public OtaApi {
   uint32_t openSd(const std::string& path) override;
   int readSd(uint8_t* buf, size_t len) override;
   void closeSd() override;
+  bool sdWriteFile(const std::string& path, const std::string& data) override;
+  bool sdReadFile(const std::string& path, std::string& out) override;
 
  private:
   enum class Sink : uint8_t { None, Flash, Sd };

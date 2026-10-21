@@ -167,3 +167,24 @@ int OtaHal::readSd(uint8_t* buf, size_t len) {
 void OtaHal::closeSd() {
   if (in_) in_.close();
 }
+
+bool OtaHal::sdWriteFile(const std::string& path, const std::string& data) {
+  if (in_ || out_ || !sdReady()) return false;
+  size_t slash = path.rfind('/');
+  if (slash > 0 && slash != std::string::npos) SD.mkdir(path.substr(0, slash).c_str());
+  File f = SD.open(path.c_str(), FILE_WRITE);
+  if (!f) return false;
+  bool ok = f.write((const uint8_t*)data.data(), data.size()) == data.size();
+  f.close();
+  return ok;
+}
+
+bool OtaHal::sdReadFile(const std::string& path, std::string& out) {
+  if (in_ || out_ || !sdReady()) return false;
+  File f = SD.open(path.c_str(), FILE_READ);
+  if (!f || f.isDirectory() || f.size() > 64 * 1024) return false;
+  out.resize(f.size());
+  bool ok = f.read((uint8_t*)&out[0], out.size()) == (int)out.size();
+  f.close();
+  return ok;
+}

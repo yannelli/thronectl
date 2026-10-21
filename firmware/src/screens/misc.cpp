@@ -55,7 +55,7 @@ class Splash : public Screen {
 class Notices : public Screen {
  public:
   Notices() {
-    list_.y = STATUS_H + 16;
+    list_.y = STATUS_H + HEADER_H;
     list_.h = SCREEN_H - HINT_H - list_.y;
     list_.rowH = 24;
   }
@@ -89,7 +89,7 @@ class Notices : public Screen {
       std::string age = fmtAge(elapsedMs(now, n.at) / 1000);
       gfx::text(cv, F::small, x + w - 3, y + 3, age, t.dim, gfx::Datum::top_right);
       gfx::text(cv, F::text, x + 14, y + 1, gfx::ellipsize(cv, F::text, n.title, w - 44), sel ? t.selFg : t.fg);
-      gfx::text(cv, F::small, x + 14, y + 13, gfx::ellipsize(cv, F::small, n.body, w - 18), t.dim);
+      gfx::text(cv, F::small, x + 14, y + gfx::height(cv, F::text) + 3, gfx::ellipsize(cv, F::small, n.body, w - 18), t.dim);
     });
     gfx::hints(c, {{"ent", "open"}, {"c", "clear"}, {"`", "back"}});
   }
@@ -111,7 +111,7 @@ class TextScreen : public Screen {
       return true;
     }
     if (e.key == 'x') { svc().link->call("tts.stop", [](bool, JsonVariantConst, const char*) {}); svc().audio->speakerStop(); return true; }
-    view_.onKey(e, ROWS);
+    view_.onKey(e, rows_);
     return true;
   }
   void draw(Canvas& c) override {
@@ -120,12 +120,14 @@ class TextScreen : public Screen {
       wrapped_ = true;
     }
     gfx::header(c, title_, std::to_string(view_.lines.size()) + " lines");
-    view_.draw(c, 5, STATUS_H + 19, SCREEN_W - 8, ROWS * 11, F::text, 11, T().fg);
+    int top = STATUS_H + HEADER_H + 3;
+    rows_ = (SCREEN_H - HINT_H - top) / LINE_H;
+    view_.draw(c, 5, top, SCREEN_W - 8, rows_ * LINE_H, F::text, LINE_H, T().fg);
     gfx::hints(c, {{"; .", "scroll"}, {", /", "page"}, {"v", "read aloud"}, {"x", "hush"}, {"`", "back"}});
   }
 
  private:
-  static constexpr int ROWS = 8;
+  int rows_ = 8;
   std::string title_, text_;
   TextView view_;
   bool wrapped_ = false;
@@ -167,13 +169,15 @@ class About : public Screen {
       rows.push_back({"Latency", std::to_string(s.link->rttMs()) + " ms"});
     } else rows.push_back({"Host", "not connected"});
     gfx::header(c, "About");
-    int maxScroll = (int)rows.size() - 9;
+    const int top = STATUS_H + HEADER_H + 2, lh = gfx::height(c, F::small) + 2;
+    const int vis = (SCREEN_H - HINT_H - top) / lh, vx = gfx::width(c, F::small, "Device ID") + 12;
+    int maxScroll = (int)rows.size() - vis;
     if (scroll_ > maxScroll) scroll_ = maxScroll < 0 ? 0 : maxScroll;
-    for (int i = 0; i < 9 && scroll_ + i < (int)rows.size(); i++) {
+    for (int i = 0; i < vis && scroll_ + i < (int)rows.size(); i++) {
       auto& r = rows[scroll_ + i];
-      int y = STATUS_H + 18 + i * 10;
+      int y = top + i * lh;
       gfx::text(c, F::small, 5, y, r.first, t.dim);
-      gfx::text(c, F::small, 70, y, gfx::ellipsize(c, F::small, r.second, SCREEN_W - 74), t.fg);
+      gfx::text(c, F::small, vx, y, gfx::ellipsize(c, F::small, r.second, SCREEN_W - vx - 4), t.fg);
     }
     crown(c, SCREEN_W - 20, STATUS_H + 34, 22, blend(t.bg, t.accent, 90), blend(t.bg, t.accent2, 90));
     gfx::hints(c, {{"; .", "scroll"}, {"`", "back"}});
@@ -189,3 +193,34 @@ Screen* makeSplash() { return new Splash(); }
 Screen* makeNotices() { return new Notices(); }
 Screen* makeTextView(const std::string& title, const std::string& text) { return new TextScreen(title, text); }
 Screen* makeAbout() { return new About(); }
+
+Screen* makeKeyHelp() {
+  return makeTextView("Shortcuts",
+                      "Everywhere\n"
+                      "` (Esc)  back, from any screen\n"
+                      "; .  up and down    , /  left and right\n"
+                      "G0  hold to talk to the open agent\n"
+                      "Opt+h  home    Opt+a  agents\n"
+                      "Opt+n  new agent    Opt+t  shell\n"
+                      "Opt+s  settings    Opt+enter  go to\n"
+                      "Opt+m  mute    Opt+d  do not disturb\n"
+                      "Opt+- Opt+=  volume\n"
+                      "Opt+[ Opt+]  brightness\n"
+                      "Opt+k  this list\n"
+                      "\n"
+                      "Home\n"
+                      ", / or < >  dashboard slides\n"
+                      "enter  open the slide's screen\n"
+                      "a agents  n new  t shell  p procs\n"
+                      "h hosts  w Wi-Fi  s settings  l alerts\n"
+                      "m menu  c connect\n"
+                      "\n"
+                      "Agents\n"
+                      "y allow  d deny  enter open  t terminal\n"
+                      "p prompt  f filter  k end\n"
+                      "\n"
+                      "Terminal\n"
+                      "`  leave (press twice for a shell)\n"
+                      "fn+`  send Esc    Opt+q  leave\n"
+                      "Opt+`  type a backtick");
+}

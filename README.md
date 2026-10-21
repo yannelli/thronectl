@@ -16,7 +16,11 @@ From the device you can start, watch, prompt, approve and stop agents (Claude Co
 | ![New agent](docs/img/new_4_prompt.png) | ![Terminal](docs/img/terminal.png) | ![Voice](docs/img/voice_rec.png) |
 | Launch wizard: harness, folder, mode, prompt | Full terminal: shell or attach to an agent | Hold G0 and talk |
 | ![Pairing](docs/img/pairing.png) | ![Processes](docs/img/procs.png) | ![Settings](docs/img/settings_display.png) |
-| Pairing code, confirmed on the host | Top processes, terminate or kill | 12 themes, 9 accent colors |
+| Pairing code, confirmed on the host | Top processes, terminate or kill | 15 themes, 10 accent colors, two text sizes |
+| ![CPU slide](docs/img/home_slide1.png) | ![Memory slide](docs/img/home_slide2.png) | ![Normal text](docs/img/home_n.png) |
+| Dashboard slides: `,` and `/` or `<` and `>` | Memory, swap and disk | Normal text size: larger, shows less |
+| ![Absolutely Light](docs/img/theme_12.png) | ![Absolutely Dark](docs/img/theme_13.png) | ![Power](docs/img/settings_power.png) |
+| Absolutely Light (Claude-inspired) | Absolutely Dark | CPU, Wi-Fi and stats power saving |
 
 ## Quick start
 
@@ -93,7 +97,7 @@ cd thronectl && git pull && cd daemon && npm install && npm run build && npm lin
 
 ## Using it
 
-The Cardputer has no arrow keys. In menus, the keys printed with arrows work without **fn**: `;` up, `.` down, `,` left, `/` right. `` ` `` or Backspace goes back. In text fields and the terminal, hold **fn** for arrows. **fn+`** is Esc.
+The Cardputer has no arrow keys. In menus, the keys printed with arrows work without **fn**: `;` up, `.` down, `,` left, `/` right. `` ` `` (the Esc keycap) goes back from every screen, text fields and the agent prompt too. Backspace also goes back outside text fields. In text fields and the terminal, hold **fn** for arrows. **fn+`** is Esc. Opt+`` ` `` types a backtick. Opt+k shows all shortcuts on the device.
 
 ### Everywhere
 
@@ -106,12 +110,22 @@ The Cardputer has no arrow keys. In menus, the keys printed with arrows work wit
 | Opt+n | New agent |
 | Opt+t | Shell on the host |
 | Opt+s | Settings |
-| Opt+m | Mute or unmute |
+| Opt+m | Mute or unmute (keeps the volume level) |
+| Opt+d | Do not disturb on or off |
+| Opt+- / Opt+= | Volume down / up |
+| Opt+[ / Opt+] | Brightness down / up |
+| Opt+k | Shortcut list |
 | Opt+Enter | Go-to menu |
+
+The status bar shows a crescent while alerts are silent (do not disturb or quiet hours) and a crossed speaker while muted.
 
 ### Home
 
 `a` agents, `n` new agent, `t` shell, `p` processes, `l` notifications, `h` hosts, `w` Wi-Fi, `s` settings, `m` for the menu, `c` connect.
+
+The dashboard opens on the overview. `,` and `/` (or `<` and `>`) flip through detail slides: CPU (per-core bars, load, history), memory and disk (memory, swap, disk, history), network (down and up rates, history, Wi-Fi signal, latency), agents (counts and the full list) and host (hostname, system, user, uptime, battery, daemon). The dots at the top right show the slide. Enter opens the matching screen. Settings > Display > Rotate dashboard flips slides on a timer.
+
+When the link is down, Home shows when the next automatic retry happens. Press `c` to retry now.
 
 ### Agents
 
@@ -161,14 +175,36 @@ Two font sizes: 40x15 (default) and 60x20 (Settings > Display > Terminal font). 
 
 | Group | Settings |
 |-------|----------|
-| Display | Theme (Throne, Midnight, Tokyo Night, Catppuccin, Dracula, Nord, Gruvbox, Solarized, Synthwave, Matrix, Amber CRT, Paper), accent color, brightness, dim after, screen off after, flip screen, terminal font, 24-hour clock, battery percent, animations, boot splash, toast seconds |
-| Sound | Volume, key clicks, alert sounds, startup chime, wake on alerts, play all chimes |
+| Display | Theme, accent color, text size (Small or Normal), brightness, dim after, dimmed brightness, screen off after, flip screen, terminal font, terminal output keeps screen on, 24-hour clock, battery percent, animations, boot splash, rotate dashboard, toast seconds |
+| Sound | Volume, alert volume, voice volume, key clicks, alert sounds, do not disturb, quiet hours, finished turns (every turn, over 30 s, over 2 min, off), approval alerts, error alerts, remind while waiting, wake on alerts, startup chime, play all chimes |
 | Voice | Read replies aloud, push to talk (hold or tap), mic gain, send without review, host voice name, test speaker |
 | LED | Off, agent status (pulses while agents work, blinks when one waits), alerts only, LED brightness |
-| Agents | Confirm before ending, open terminal on launch, show exited agents, stats refresh, default harness, clear notifications |
+| Agents | Confirm before ending, open terminal on launch, show exited agents, default harness, clear notifications |
 | Network | Wi-Fi networks, hosts and pairing, auto-connect, device name, time zone (or from host), disconnect, reconnect |
-| Keyboard and power | Key repeat delay and rate, CPU speed, power off |
-| Device | About (firmware, install mode, heap, battery, IP, MAC, host info, latency), update from SD card, reboot, factory reset |
+| Keyboard | Key repeat delay and rate, shortcut list |
+| Power | CPU speed, CPU saver, Wi-Fi power save, stats when active, dimmed and screen off, battery saver at 20%, turn off at 3%, power off |
+| Device | About, update from SD card, back up settings to SD, restore settings from SD, reset settings (keeps Wi-Fi and pairing), reboot, factory reset |
+
+Themes: Throne, Midnight, Tokyo Night, Catppuccin, Dracula, Nord, Gruvbox, Solarized, Synthwave, Matrix, Amber CRT, Paper, and the Claude-inspired Absolutely Light, Absolutely Dark and Absolutely Black. Absolutely Light and Dark use the Claude app's light and dark palettes (ivory or warm charcoal with the clay accent). Absolutely Black is a darker variant of the dark palette. The Clay accent puts the same orange on any theme.
+
+**Text size.** Small is the original dense layout. Normal uses larger fonts and taller rows, so each screen shows less: fewer list rows, fewer output lines in the agent view, and no history strip on the dashboard overview (the CPU and Network slides still have it). The terminal keeps its own font setting.
+
+**Alerts.** Filtered alerts still go to Notifications, without a toast, sound or wake. During do not disturb and quiet hours, alerts show a toast but make no sound, do not wake the screen and do not flash the LED. "Remind while waiting" chimes again while an agent waits for approval. The daemon sends the turn length with each finished-turn alert, so "Turns over 2 min" skips quick replies.
+
+**Settings backup.** The backup is `/thronectl/settings.json` on the SD card. It includes saved Wi-Fi passwords. The device key is not in it, so after a factory reset you pair again.
+
+### Power saving
+
+| Setting | What it does |
+|---------|--------------|
+| CPU speed | 240, 160 or 80 MHz. These are the only ESP32-S3 speeds that keep Wi-Fi running. 333 MHz is not supported: 240 MHz is the chip's maximum, and the 40, 20 and 10 MHz crystal speeds stop the radio |
+| CPU saver | Drops to 80 MHz when the screen is off (default), or when it dims too. Voice and updates always run at full speed |
+| Wi-Fi power save | Off (lowest latency), Light (modem sleep between beacons, the default), Max (sleeps through beacons, replies arrive later), or Max only while the screen is off |
+| Stats when active / dimmed / screen off | How often the host sends stats in each display state. Screen off can pause stats. Screens other than the dashboard get the dimmed rate |
+| Battery saver at 20% | On battery at 20% or less: 80 MHz, Max Wi-Fi power save, stats every 10 s or slower, brightness capped. Ends at 25% or on charge |
+| Turn off at 3% | Warns at 10%, then turns off 15 s after it reaches 3% unless you plug in |
+
+The main loop also sleeps longer while the screen is dimmed or off. Automatic light sleep and dynamic frequency scaling are not available: the prebuilt Arduino ESP32 core is compiled without power management (`CONFIG_PM_ENABLE`).
 
 ## Agents and harnesses
 
@@ -257,6 +293,11 @@ thronectl say "Build failed on main"
 
 The wire format is in [docs/protocol.md](docs/protocol.md).
 
+## Troubleshooting
+
+- **Agents or the shell fail with "posix_spawnp failed" (macOS).** node-pty 1.1 installs its `spawn-helper` without the execute bit. The daemon now fixes the bit itself when it starts a terminal, and `thronectl doctor` checks and fixes it too. If the install folder is read-only, run the `chmod +x` command the error message prints.
+- **"X not found on the daemon's PATH".** The daemon checks the command and the folder before it starts an agent. Run `thronectl doctor`, or set an absolute path for the harness in the config.
+
 ## Development
 
 ```
@@ -277,3 +318,4 @@ docs/       Protocol spec and screenshots
 - Cardputer ADV: ESP32-S3FN8 (8 MB flash, no PSRAM), 240x135 ST7789V2, TCA8418 keyboard, ES8311 codec with speaker and mic, RGB LED on GPIO 21, G0 button.
 - The speaker and the mic share one I2S bus, so playback stops while you talk.
 - The firmware runs one loop. The screen redraws at 30 fps while you use it and slows down when idle to save battery.
+- CPU clock: 240 MHz maximum. 240, 160 and 80 MHz work with Wi-Fi; see Power saving.

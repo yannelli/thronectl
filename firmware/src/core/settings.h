@@ -18,8 +18,11 @@ struct Settings {
   uint8_t dimAfter = 2;   // DIM_OPTS
   uint8_t offAfter = 3;   // OFF_OPTS
   bool flip = false;
+  uint8_t textSize = 0;   // TEXT_SIZE_OPTS: 0 small, 1 normal
   uint8_t termFont = 1;   // 0 small (60x20), 1 normal (40x15)
   bool animations = true, clock24 = true, splash = true, showBattPct = true;
+  uint8_t dashCycle = 0;  // DASH_CYCLE_OPTS
+  bool termAwake = true;  // terminal output keeps the screen from dimming
   uint8_t ledMode = 1;    // LED_OPTS
   uint8_t ledBright = 40;
   // sound
@@ -27,6 +30,12 @@ struct Settings {
   uint8_t keyClick = 1;   // CLICK_OPTS
   uint8_t notifySound = 0; // NOTIFY_OPTS
   bool startupChime = true, wakeOnNotify = true;
+  uint8_t alertVol = 200, voiceVol = 255;  // channel levels under the master volume
+  bool muted = false, dnd = false;
+  uint8_t quietHours = 0;  // QUIET_OPTS
+  uint8_t notifyDone = 0;  // NOTIFY_DONE_OPTS
+  bool notifyAttn = true, notifyErr = true;
+  uint8_t remindWaiting = 2;  // REMIND_OPTS
   uint8_t toastSecs = 4;
   // voice
   uint8_t speakReplies = 0; // SPEAK_OPTS
@@ -48,6 +57,11 @@ struct Settings {
   uint8_t statsRate = 1;  // STATS_OPTS
   // power and keyboard
   uint8_t cpuMhz = 0;     // CPU_OPTS
+  uint8_t cpuSave = 1;    // CPU_SAVE_OPTS: drop to 80 MHz when dimmed or off
+  uint8_t wifiSave = 1;   // WIFI_SAVE_OPTS
+  uint8_t statsDim = 1, statsOff = 3;  // STATS_DIM_OPTS, STATS_OFF_OPTS
+  uint8_t dimLevel = 1;   // DIM_LEVEL_OPTS
+  bool lowBattSave = true, battAutoOff = true;
   uint8_t repeatDelay = 1, repeatRate = 1;
 
   HostEntry* findHost(const std::string& id);
@@ -64,9 +78,11 @@ struct OptList {
 };
 
 extern const OptList DIM_OPTS, OFF_OPTS, LED_OPTS, CLICK_OPTS, NOTIFY_OPTS, SPEAK_OPTS, MIC_GAIN_OPTS,
-    STATS_OPTS, CPU_OPTS, TZ_NAMES, PTT_OPTS, TERM_FONT_OPTS, REPEAT_DELAY_OPTS, REPEAT_RATE_OPTS;
-extern const uint32_t DIM_MS[], OFF_MS[], STATS_MS[], REPEAT_DELAY_MS[], REPEAT_RATE_MS[];
-extern const uint8_t MIC_GAIN_VALUES[];
+    STATS_OPTS, CPU_OPTS, TZ_NAMES, PTT_OPTS, TERM_FONT_OPTS, TEXT_SIZE_OPTS, DASH_CYCLE_OPTS,
+    CPU_SAVE_OPTS, WIFI_SAVE_OPTS, STATS_DIM_OPTS, STATS_OFF_OPTS, DIM_LEVEL_OPTS, QUIET_OPTS, NOTIFY_DONE_OPTS, REMIND_OPTS, REPEAT_DELAY_OPTS, REPEAT_RATE_OPTS;
+extern const uint32_t DIM_MS[], OFF_MS[], STATS_MS[], DASH_CYCLE_MS[], STATS_DIM_MS[], STATS_OFF_MS[], REMIND_MS[], REPEAT_DELAY_MS[], REPEAT_RATE_MS[];
+extern const uint8_t MIC_GAIN_VALUES[], QUIET_FROM[], QUIET_TO[];
+extern const uint16_t NOTIFY_DONE_SECS[];
 extern const uint16_t CPU_VALUES[];
 extern const char* const TZ_POSIX[];
 

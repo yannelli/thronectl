@@ -77,6 +77,51 @@ void danger(const char* title, const char* msg, std::function<void()> fn) {
   ui().confirm(title, msg, [fn](bool yes) { if (yes) fn(); });
 }
 
+const char* const BACKUP_PATH = "/thronectl/settings.json";
+
+/** Applies a whole new Settings and rebuilds the stack, since sizes and themes may change. */
+void adopt(const Settings& next, int sel) {
+  settings() = next;
+  settingsSave();
+  Settings& s = settings();
+  applyTheme(s.theme, s.accent);
+  applyTextSize(s.textSize);
+  if (s.tz) svc().sys->setTimezone(TZ_POSIX[s.tz]);
+  app().applySound();
+  app().applyDisplay();
+  ui().home();
+  ui().push(makeSettings());
+  ui().push(makeSettingsCategory(8, sel));
+}
+
+void backup() {
+  if (!svc().ota->sdReady()) return ui().toast("error", "No SD card", "Insert a FAT32 card first.");
+  if (svc().ota->sdWriteFile(BACKUP_PATH, settingsToJson(settings()))) ui().toast("done", "Settings saved to SD", BACKUP_PATH);
+  else ui().toast("error", "Could not write the SD card");
+}
+
+void restore() {
+  std::string json;
+  if (!svc().ota->sdReadFile(BACKUP_PATH, json)) return ui().toast("error", "No backup found", std::string("Looked for ") + BACKUP_PATH);
+  Settings next = settings();
+  if (!settingsFromJson(next, json)) return ui().toast("error", "Backup is damaged", "The file is not valid settings JSON.");
+  adopt(next, 3);
+  ui().toast("done", "Settings restored");
+}
+
+/** Back to defaults, keeping what it takes to reconnect: Wi-Fi, paired hosts, name and time zone. */
+void resetKeepPairing() {
+  const Settings& cur = settings();
+  Settings next;
+  next.wifi = cur.wifi;
+  next.hosts = cur.hosts;
+  next.defaultHost = cur.defaultHost;
+  next.deviceName = cur.deviceName;
+  next.tz = cur.tz;
+  adopt(next, 4);
+  ui().toast("done", "Settings reset", "Wi-Fi and pairing kept.");
+}
+
 std::vector<Item> category(int idx) {
   Settings& s = settings();
   std::vector<Item> v;
@@ -92,24 +137,43 @@ std::vector<Item> category(int idx) {
       ac.set = [&s](int x) { s.accent = (uint8_t)x; retheme(); };
       ac.options = [] { std::vector<std::string> o; for (int i = 0; i < ACCENT_COUNT; i++) o.push_back(ACCENTS[i].name); return o; };
       v.push_back(ac);
+      v.push_back(choice("Text size", s.textSize, TEXT_SIZE_OPTS, [] {
+        applyTextSize(settings().textSize);
+        settingsSave();
+        // Screens size their lists when built, so rebuild the stack at the new size.
+        ui().home();
+        ui().push(makeSettings());
+        ui().push(makeSettingsCategory(0, 2));
+      }));
       v.push_back(slider("Brightness", s.brightness, 8, 255, 16, display));
       v.push_back(choice("Dim after", s.dimAfter, DIM_OPTS));
+      v.push_back(choice("Dimmed brightness", s.dimLevel, DIM_LEVEL_OPTS));
       v.push_back(choice("Screen off after", s.offAfter, OFF_OPTS));
       v.push_back(toggle("Flip screen", s.flip, display));
       v.push_back(choice("Terminal font", s.termFont, TERM_FONT_OPTS));
+      v.push_back(toggle("Terminal output keeps screen on", s.termAwake));
       v.push_back(toggle("24-hour clock", s.clock24));
       v.push_back(toggle("Battery percent", s.showBattPct));
       v.push_back(toggle("Animations", s.animations));
       v.push_back(toggle("Boot splash", s.splash));
+      v.push_back(choice("Rotate dashboard", s.dashCycle, DASH_CYCLE_OPTS));
       v.push_back(slider("Toast seconds", s.toastSecs, 2, 10, 1));
       break;
     }
     case 1:
-      v.push_back(slider("Volume", s.volume, 0, 255, 16, [] { app().applySound(); svc().audio->chime(CH_INFO); }));
+      v.push_back(slider("Volume", s.volume, 0, 255, 16, [] { settings().muted = false; app().applySound(); svc().audio->chime(CH_INFO); }));
+      v.push_back(slider("Alert volume", s.alertVol, 0, 255, 16, [] { app().applySound(); svc().audio->chime(CH_DONE); }));
+      v.push_back(slider("Voice volume", s.voiceVol, 0, 255, 16, [] { app().applySound(); }));
       v.push_back(choice("Key clicks", s.keyClick, CLICK_OPTS));
       v.push_back(choice("Alert sounds", s.notifySound, NOTIFY_OPTS));
-      v.push_back(toggle("Startup chime", s.startupChime));
+      v.push_back(toggle("Do not disturb", s.dnd));
+      v.push_back(choice("Quiet hours", s.quietHours, QUIET_OPTS));
+      v.push_back(choice("Finished turns", s.notifyDone, NOTIFY_DONE_OPTS));
+      v.push_back(toggle("Approval alerts", s.notifyAttn));
+      v.push_back(toggle("Error alerts", s.notifyErr));
+      v.push_back(choice("Remind while waiting", s.remindWaiting, REMIND_OPTS));
       v.push_back(toggle("Wake on alerts", s.wakeOnNotify));
+      v.push_back(toggle("Startup chime", s.startupChime));
       v.push_back(action("Play all chimes", [] {
         static uint8_t n = 0;
         static const char* const names[] = {"startup", "done", "attention", "error", "info", "ok", "fail"};
@@ -134,7 +198,6 @@ std::vector<Item> category(int idx) {
       v.push_back(toggle("Confirm before ending", s.confirmKill));
       v.push_back(toggle("Open terminal on launch", s.attachAfterCreate));
       v.push_back(toggle("Show exited agents", s.showExited));
-      v.push_back(choice("Stats refresh", s.statsRate, STATS_OPTS, [] { if (svc().link->ready()) app().resubscribe(); }));
       Item h{Item::CHOICE, "Default harness"};
       h.get = [&s] {
         auto& hs = store().harness;
@@ -159,12 +222,30 @@ std::vector<Item> category(int idx) {
     case 6:
       v.push_back(choice("Key repeat delay", s.repeatDelay, REPEAT_DELAY_OPTS));
       v.push_back(choice("Key repeat rate", s.repeatRate, REPEAT_RATE_OPTS));
-      v.push_back(choice("CPU speed", s.cpuMhz, CPU_OPTS, [&s] { svc().sys->setCpuMhz(CPU_VALUES[s.cpuMhz % 3]); }));
+      v.push_back(action("Shortcuts", [] { ui().push(makeKeyHelp()); }));
+      break;
+    case 7:
+      // App::updatePower applies these on its next loop, so no callbacks are needed.
+      v.push_back(choice("CPU speed", s.cpuMhz, CPU_OPTS));
+      v.push_back(choice("CPU saver", s.cpuSave, CPU_SAVE_OPTS));
+      v.push_back(choice("Wi-Fi power save", s.wifiSave, WIFI_SAVE_OPTS));
+      v.push_back(choice("Stats when active", s.statsRate, STATS_OPTS));
+      v.push_back(choice("Stats when dimmed", s.statsDim, STATS_DIM_OPTS));
+      v.push_back(choice("Stats when screen off", s.statsOff, STATS_OFF_OPTS));
+      v.push_back(toggle("Battery saver at 20%", s.lowBattSave));
+      v.push_back(toggle("Turn off at 3%", s.battAutoOff));
       v.push_back(action("Power off", [] { danger("Power off?", "Press the side button to turn it back on.", [] { settingsSave(); svc().sys->powerOff(); }); }));
       break;
     default:
       v.push_back(action("About this device", [] { ui().push(makeAbout()); }));
       v.push_back(action("Update from SD card", [] { ui().push(makeSdUpdate()); }));
+      v.push_back(action("Back up settings to SD", [] {
+        danger("Back up settings?", "Writes /thronectl/settings.json. It includes Wi-Fi passwords.", backup);
+      }));
+      v.push_back(action("Restore settings from SD", [] {
+        danger("Restore settings?", "Replaces all settings with the SD backup.", restore);
+      }));
+      v.push_back(action("Reset settings", [] { danger("Reset settings?", "Back to defaults. Wi-Fi and paired hosts stay.", resetKeepPairing); }));
       v.push_back(action("Reboot", [] { danger("Reboot?", "Settings are saved first.", [] { settingsSave(); svc().sys->reboot(); }); }));
       v.push_back(action("Factory reset", [] {
         danger("Factory reset?", "Erases Wi-Fi, paired hosts, keys and all settings.", [] { svc().sys->factoryReset(); });
@@ -174,19 +255,20 @@ std::vector<Item> category(int idx) {
   return v;
 }
 
-const char* const CATS[] = {"Display", "Sound", "Voice", "LED", "Agents", "Network", "Keyboard & power", "Device"};
-const char* const CAT_SUB[] = {"theme, brightness, sleep", "volume, clicks, alerts", "talk, read aloud, mic",
-                               "status light", "launch, confirm, stats", "Wi-Fi, hosts, time zone",
-                               "repeat, CPU, power", "about, update, reset"};
-constexpr int CAT_COUNT = 8;
+const char* const CATS[] = {"Display", "Sound", "Voice", "LED", "Agents", "Network", "Keyboard", "Power", "Device"};
+const char* const CAT_SUB[] = {"theme, text size, sleep", "volume, alerts, quiet", "talk, read aloud, mic",
+                               "status light", "launch, confirm", "Wi-Fi, hosts, time zone",
+                               "repeat, shortcuts", "CPU, Wi-Fi, battery", "about, update, reset"};
+constexpr int CAT_COUNT = 9;
 
 class Category : public Screen {
  public:
-  explicit Category(int idx) : idx_(idx), items_(category(idx)) {
-    list_.y = STATUS_H + 16;
+  Category(int idx, int sel) : idx_(idx), items_(category(idx)) {
+    list_.y = STATUS_H + HEADER_H;
     list_.h = SCREEN_H - HINT_H - list_.y;
     list_.rowH = 14;
     list_.count = (int)items_.size();
+    list_.sel = sel;
   }
 
   bool onKey(const KeyEvent& e) override {
@@ -227,7 +309,7 @@ class Category : public Screen {
     list_.draw(c, [&](Canvas& cv, int i, int x, int y, int w, int, bool sel) {
       Item& it = items_[i];
       gfx::text(cv, F::text, x + 6, y + 2, it.label, sel ? t.selFg : t.fg);
-      int rx = x + w - 5;
+      int rx = x + w - 5, room = w - 19 - gfx::width(cv, F::text, it.label);
       switch (it.kind) {
         case Item::TOGGLE: {
           bool on = it.get();
@@ -247,11 +329,11 @@ class Category : public Screen {
           auto o = it.options();
           int v = it.get();
           std::string s = v >= 0 && v < (int)o.size() ? o[v] : "-";
-          gfx::text(cv, F::text, rx, y + 2, gfx::ellipsize(cv, F::text, s, 110), t.accent, gfx::Datum::top_right);
+          gfx::text(cv, F::text, rx, y + 2, gfx::ellipsize(cv, F::text, s, room), t.accent, gfx::Datum::top_right);
           break;
         }
         case Item::TEXT:
-          gfx::text(cv, F::text, rx, y + 2, gfx::ellipsize(cv, F::text, it.str->empty() ? "(default)" : *it.str, 100),
+          gfx::text(cv, F::text, rx, y + 2, gfx::ellipsize(cv, F::text, it.str->empty() ? "(default)" : *it.str, room),
                     it.str->empty() ? t.dim : t.accent, gfx::Datum::top_right);
           break;
         case Item::ACTION:
@@ -288,7 +370,7 @@ class Category : public Screen {
 class SettingsMenu : public Screen {
  public:
   SettingsMenu() {
-    list_.y = STATUS_H + 16;
+    list_.y = STATUS_H + HEADER_H;
     list_.h = SCREEN_H - HINT_H - list_.y;
     list_.rowH = 12;
     list_.count = CAT_COUNT;
@@ -297,7 +379,7 @@ class SettingsMenu : public Screen {
   bool onKey(const KeyEvent& e) override {
     if (list_.onKey(e)) return true;
     if (isBack(e)) { ui().pop(); return true; }
-    if (e.key == K_ENTER || navKey(e) == K_RIGHT) { ui().push(new Category(list_.sel)); return true; }
+    if (e.key == K_ENTER || navKey(e) == K_RIGHT) { ui().push(new Category(list_.sel, 0)); return true; }
     return false;
   }
 
@@ -318,3 +400,4 @@ class SettingsMenu : public Screen {
 }  // namespace
 
 Screen* makeSettings() { return new SettingsMenu(); }
+Screen* makeSettingsCategory(int idx, int sel) { return new Category(idx, sel); }

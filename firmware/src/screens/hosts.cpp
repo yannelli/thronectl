@@ -25,7 +25,7 @@ struct Row {
 class Hosts : public Screen {
  public:
   Hosts() {
-    list_.y = STATUS_H + 16;
+    list_.y = STATUS_H + HEADER_H;
     list_.h = SCREEN_H - HINT_H - list_.y;
     list_.rowH = 22;
   }
@@ -107,7 +107,7 @@ class Hosts : public Screen {
         bool live = link->ready() && link->host().id == h.id;
         if (live) cv.fillCircle(x + 8, y + 7, 3, t.ok);
         else cv.drawCircle(x + 8, y + 7, 3, t.dim);
-        if (h.id == s.defaultHostEntry()->id) gfx::text(cv, F::small, x + 5, y + 12, "*", t.accent);
+        if (h.id == s.defaultHostEntry()->id) gfx::text(cv, F::small, x + 5, y + gfx::height(cv, F::text) + 2, "*", t.accent);
       } else {
         const Beacon& b = svc().net->beacons()[r.idx];
         name = b.name; addr = b.ip + ":" + std::to_string(b.port); os = b.os;
@@ -117,7 +117,7 @@ class Hosts : public Screen {
       int tw = gfx::width(cv, F::small, tag) + 6;
       gfx::chip(cv, x + w - tw - 3, y + 2, tag, saved ? t.fg : t.bg, saved ? t.panel2 : t.accent2);
       gfx::text(cv, F::text, x + 16, y + 1, gfx::ellipsize(cv, F::text, name, w - tw - 24), sel ? t.selFg : t.fg);
-      gfx::text(cv, F::small, x + 16, y + 12, addr, t.dim);
+      gfx::text(cv, F::small, x + 16, y + gfx::height(cv, F::text) + 2, addr, t.dim);
     });
     if (rows_.size() == 1) {
       gfx::text(c, F::small, SCREEN_W / 2, 74, "Run  thronectl daemon  on your computer", t.dim, gfx::Datum::top_center);
@@ -203,17 +203,17 @@ class Pairing : public Screen {
     uint32_t now = nowMs();
     std::string name = s == LinkState::Ready ? link->host().name : link->targetName();
     gfx::header(c, "Pair", gfx::ellipsize(c, F::small, name, 140));
-    int cx = SCREEN_W / 2;
+    int cx = SCREEN_W / 2, o = STATUS_H + HEADER_H - 28;
     if (s == LinkState::Pairing) {
       std::string code = link->pairCode();
       if (code.size() == 6) code = code.substr(0, 3) + " " + code.substr(3);
-      gfx::text(c, F::text, cx, 33, "Confirm this code on the host", t.dim, gfx::Datum::top_center);
+      gfx::text(c, F::text, cx, o + 33, "Confirm this code on the host", t.dim, gfx::Datum::top_center);
       int w = gfx::width(c, F::huge, code) + 24;
-      c.fillRoundRect(cx - w / 2, 47, w, 34, 6, t.panel);
-      c.drawRoundRect(cx - w / 2, 47, w, 34, 6, blend(t.panel, t.accent, (uint8_t)(140 + 100 * ((now / 700) % 2))));
-      gfx::text(c, F::huge, cx, 52, code, t.accent, gfx::Datum::top_center);
-      gfx::text(c, F::small, cx, 88, "run:  thronectl pair", t.fg, gfx::Datum::top_center);
-      gfx::text(c, F::small, cx, 99, "and answer y if the codes match", t.dim, gfx::Datum::top_center);
+      c.fillRoundRect(cx - w / 2, o + 47, w, 34, 6, t.panel);
+      c.drawRoundRect(cx - w / 2, o + 47, w, 34, 6, blend(t.panel, t.accent, (uint8_t)(140 + 100 * ((now / 700) % 2))));
+      gfx::text(c, F::huge, cx, o + 52, code, t.accent, gfx::Datum::top_center);
+      gfx::text(c, F::small, cx, o + 88, "run:  thronectl pair", t.fg, gfx::Datum::top_center);
+      gfx::text(c, F::small, cx, o + 99, "and answer y if the codes match", t.dim, gfx::Datum::top_center);
     } else if (s == LinkState::Ready) {
       c.fillCircle(cx, 62, 16, t.ok);
       c.drawLine(cx - 7, 62, cx - 2, 68, t.bg);
@@ -227,7 +227,7 @@ class Pairing : public Screen {
       c.drawLine(cx + 6, 52, cx - 6, 64, t.err);
       std::string err = link->error().empty() ? "Disconnected" : link->error();
       auto lines = gfx::wrap(c, F::text, err, SCREEN_W - 20, 3);
-      for (size_t i = 0; i < lines.size(); i++) gfx::text(c, F::text, cx, 78 + (int)i * 11, lines[i], t.fg, gfx::Datum::top_center);
+      for (size_t i = 0; i < lines.size(); i++) gfx::text(c, F::text, cx, 78 + (int)i * LINE_H, lines[i], t.fg, gfx::Datum::top_center);
     } else {
       gfx::spinner(c, cx, 60, 12, now, t.accent);
       gfx::text(c, F::text, cx, 80, s == LinkState::Connecting ? "Connecting..." : "Securing link...", t.fg, gfx::Datum::top_center);

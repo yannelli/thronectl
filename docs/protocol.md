@@ -202,9 +202,9 @@ Keepalive: the device sends `ping` every 10 s. Either side closes the connection
 
 | Event | Data |
 |-------|------|
-| `stats` | `Stats`, every `ms` after `sub` |
+| `stats` | `Stats`, every `ms` after `sub` (per device, 500 ms to 1 h). Leave `stats` out of `topics` to pause it |
 | `agents` | `{"agents":[Agent]}`, when the list changes |
-| `notify` | `{"kind":"done"\|"attn"\|"error"\|"info","title":"...","body":"...","agent":"<id>"}` |
+| `notify` | `{"kind":"done"\|"attn"\|"error"\|"info","title":"...","body":"...","agent":"<id>","secs":42}`. `secs` (done only) is how long the turn ran |
 | `term` | Terminal update (see below) |
 | `term_exit` | `{"tid":1,"code":0}` |
 | `tts` | `{"state":"start","rate":16000}` or `{"state":"end"}` |

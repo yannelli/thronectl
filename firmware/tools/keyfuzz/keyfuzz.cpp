@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <map>
 #include <random>
+#include <typeinfo>
 #include "core/app.h"
 #include "core/settings.h"
 #include "core/store.h"
@@ -131,8 +132,10 @@ class FuzzAudio : public AudioApi {
 
 class FuzzSys : public SystemApi {
  public:
-  int batteryPct() const override { return 46; }
-  bool charging() const override { return false; }
+  int pct = 46, hour = 1;
+  bool chg = false;
+  int batteryPct() const override { return pct; }
+  bool charging() const override { return chg; }
   float batteryVolts() const override { return 3.7f; }
   void setBrightness(uint8_t) override {}
   void setRotationFlipped(bool) override {}
@@ -143,7 +146,7 @@ class FuzzSys : public SystemApi {
   std::string chipInfo() const override { return "ESP32-S3"; }
   std::string deviceId() const override { return "c12a7e04b9d3"; }
   uint32_t uptimeS() const override { return g_now / 1000; }
-  bool localTime(int& h, int& m, int& s) const override { h = 1; m = 2; s = 3; return true; }
+  bool localTime(int& h, int& m, int& s) const override { h = hour; m = 2; s = 3; return true; }
   void setTimezone(const char*) override {}
   void setTimeFromHost(int64_t) override {}
   void reboot() override {}
@@ -229,6 +232,8 @@ static void randomWorld() {
     case 9: linkEvent("ota.offer", pick(2) ? R"({"ver":"9.9.9","size":3000,"sha256":"ab","from":"host"})" : R"({"size":0})"); break;
     case 10: case 11: otaFrame(); break;
     case 12: ota_.launcher = pick(2); break;
+    case 13: sys_.pct = pick(3) ? -1 + (int)pick(102) : (int)pick(6); sys_.chg = pick(3) == 0; sys_.hour = pick(24); break;
+    case 14: linkEvent("notify", pick(2) ? R"({"kind":"done","title":"b","body":"ok","agent":"d-2","secs":12})" : R"({"kind":"error","title":"c","body":"x"})"); break;
     default: break;
   }
 }
@@ -241,6 +246,7 @@ int main(int argc, char** argv) {
   c.createSprite(SCREEN_W, SCREEN_H);
   settingsBind(&store_);
   settingsLoad();
+  settings().textSize = (argc > 2 ? atoi(argv[2]) : 1) % 2;
   svc().link = &link_;
   svc().net = &net_;
   svc().audio = &audio_;
@@ -263,6 +269,21 @@ int main(int argc, char** argv) {
     if (pick(4) == 0) link_.flush();
     app().loop(now);
     ui().tick(now);
+    // Escape must always lead back to Home, whatever screen or dialog is open.
+    if (i % 997 == 0) {
+      KeyEvent esc;
+      esc.key = '`';
+      for (int n = 0; n < 12 && ui().depth() > 1; n++) {
+        g_now += 300;
+        app().onKey(esc);
+        app().loop(g_now);
+        ui().tick(g_now);
+      }
+      if (ui().depth() > 1) {
+        printf("keyfuzz: FAIL at step %ld: Esc did not get back to Home (depth %d, on %s)\n", i, (int)ui().depth(), typeid(*ui().top()).name());
+        return 1;
+      }
+    }
     if (pressed && !app().screenOn()) {
       printf("keyfuzz: FAIL at step %ld: the screen turned off right after a key press\n", i);
       return 1;

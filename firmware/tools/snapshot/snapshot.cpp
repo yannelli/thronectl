@@ -137,6 +137,7 @@ static MockAudio audio_;
 static MockSys sys_;
 static Canvas* canvas;
 static const char* outDir = ".";
+static const char* suffix = "";
 
 static void shot(const char* name) {
   for (int i = 0; i < 3; i++) {
@@ -146,7 +147,7 @@ static void shot(const char* name) {
   ui().render(*canvas);
   size_t len = 0;
   void* png = canvas->createPng(&len, 0, 0, SCREEN_W, SCREEN_H);
-  std::string path = std::string(outDir) + "/" + name + ".png";
+  std::string path = std::string(outDir) + "/" + name + suffix + ".png";
   FILE* f = fopen(path.c_str(), "wb");
   if (f && png) {
     fwrite(png, 1, len, f);
@@ -218,9 +219,9 @@ static void seed() {
   Settings& s = settings();
   HostEntry h;
   h.id = "9f2c1a"; h.name = "Studio MacBook"; h.addr = "192.168.1.12"; h.os = "darwin";
-  s.hosts.push_back(h);
+  s.upsertHost(h);
   s.defaultHost = h.id;
-  s.wifi.push_back({"HomeNet-5G", "x"});
+  s.rememberWifi("HomeNet-5G", "x");
 }
 
 static void termFrame() {
@@ -240,23 +241,24 @@ static void termFrame() {
   if (app().termSink) app().termSink("term", d.as<JsonVariantConst>());
 }
 
-int main(int argc, char** argv) {
-  if (argc > 1) outDir = argv[1];
-  Canvas c;
-  c.setColorDepth(16);
-  c.createSprite(SCREEN_W, SCREEN_H);
-  canvas = &c;
-  svc().link = &link_;
-  svc().net = &net_;
-  svc().audio = &audio_;
-  svc().sys = &sys_;
-  svc().ota = &ota_;
+static void shots() {
   seed();
   Settings& s = settings();
-  s.splash = false;
   applyTheme(0, 0);
+  ota_.launcher = false;
+  ota_.finishOk = true;
+  ota_.err.clear();
+  updater().reset();
+  ui().home();
+  g_now += 20000;
   ui().push(makeHome());
   shot("home");
+  for (int i = 1; i < 6; i++) {
+    ui().handleKey(key('/'));
+    std::string n = "home_slide" + std::to_string(i);
+    shot(n.c_str());
+  }
+  ui().handleKey(key('/'));
   ui().push(makeSplash());
   g_now += 800;
   shot("splash");
@@ -316,6 +318,15 @@ int main(int argc, char** argv) {
   ui().handleKey(key(K_ENTER));
   shot("settings_voice");
   ui().home();
+  ui().push(makeSettingsCategory(1, 0));
+  shot("settings_sound");
+  ui().home();
+  ui().push(makeSettingsCategory(7, 0));
+  shot("settings_power");
+  ui().home();
+  ui().push(makeKeyHelp());
+  shot("keyhelp");
+  ui().home();
   ui().push(makeNotices());
   shot("notices");
   ui().home();
@@ -366,12 +377,32 @@ int main(int argc, char** argv) {
   ui().home();
   shot("home_offline");
   link_.st = LinkState::Ready;
-  const int themes[] = {2, 4, 8, 10, 11};
+  const int themes[] = {2, 4, 8, 10, 11, 12, 13, 14};
   for (int t : themes) {
     applyTheme(t, 0);
     ui().home();
     std::string n = std::string("theme_") + std::to_string(t);
     shot(n.c_str());
   }
+  applyTheme(0, 0);
+}
+
+int main(int argc, char** argv) {
+  if (argc > 1) outDir = argv[1];
+  Canvas c;
+  c.setColorDepth(16);
+  c.createSprite(SCREEN_W, SCREEN_H);
+  canvas = &c;
+  svc().link = &link_;
+  svc().net = &net_;
+  svc().audio = &audio_;
+  svc().sys = &sys_;
+  svc().ota = &ota_;
+  settings().splash = false;
+  applyTextSize(0);
+  shots();
+  applyTextSize(1);
+  suffix = "_n";
+  shots();
   return 0;
 }

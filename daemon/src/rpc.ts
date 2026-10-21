@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import type { AgentManager } from "./agents/manager.js";
 import type { Config } from "./config.js";
 import { logger } from "./log.js";
@@ -47,6 +49,9 @@ const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.m
 export class DeviceSession {
   readonly topics = new Set<string>();
   readonly since = Date.now();
+  /** Stats interval the device asked for in `sub`, and when it last got stats. */
+  statsMs = 2000;
+  statsAt = 0;
   private terms = new Map<number, TermView>();
   private nextTid = 1;
   private mic?: { rate: number; chunks: Buffer[]; bytes: number };
@@ -58,6 +63,11 @@ export class DeviceSession {
     ch.on("json", (m: unknown) => void this.onMessage(m as Params));
     ch.on("audio", (buf: Buffer, kind: number) => this.onAudio(buf, kind));
     ch.on("close", () => this.cleanup());
+  }
+
+  /** True when this session subscribed to stats and its interval has passed. */
+  statsDue(now: number): boolean {
+    return this.topics.has("stats") && now - this.statsAt >= this.statsMs - 250;
   }
 
   event(e: string, d: unknown): boolean {
@@ -96,8 +106,12 @@ export class DeviceSession {
       sub: (p) => {
         this.topics.clear();
         for (const t of (p.topics as string[] | undefined) ?? []) this.topics.add(t);
+        this.statsMs = clamp(num(p, "ms", this.ctx.cfg().statsMs), 500, 3_600_000);
         const stats = this.ctx.latestStats();
-        if (this.topics.has("stats") && stats) setTimeout(() => this.event("stats", stats), 10);
+        if (this.topics.has("stats") && stats) {
+          this.statsAt = Date.now();
+          setTimeout(() => this.event("stats", stats), 10);
+        }
         if (this.topics.has("agents")) setTimeout(() => this.event("agents", { agents: a.list() }), 10);
         return {};
       },
@@ -191,7 +205,8 @@ export class DeviceSession {
     } else {
       const cfg = this.ctx.cfg();
       if (!cfg.allowShell) throw new Error("shell access is disabled on this host");
-      src = new PtyTerm(cfg.shell, ["-l"], { cwd: expandHome(str(p, "cwd", false) || "~"), cols, rows });
+      const cwd = expandHome(str(p, "cwd", false) || "~");
+      src = new PtyTerm(cfg.shell, ["-l"], { cwd: existsSync(cwd) ? cwd : homedir(), cols, rows });
     }
     const send = (u: TermUpdate): boolean => {
       if (this.ch.writableLength > 256 * 1024) return false;

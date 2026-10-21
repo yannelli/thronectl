@@ -23,9 +23,11 @@ std::string label(const std::string& name) {
   return s;
 }
 
-void paragraph(Canvas& c, int y, const std::string& s, uint16_t color, int maxLines) {
-  auto lines = gfx::wrap(c, F::text, s, SCREEN_W - 16, maxLines);
-  for (size_t i = 0; i < lines.size(); i++) gfx::text(c, F::text, 8, y + (int)i * 11, lines[i], color);
+/** Wraps s into the lines left above the hint bar. */
+void paragraph(Canvas& c, int y, const std::string& s, uint16_t color) {
+  int maxLines = (SCREEN_H - HINT_H - y) / LINE_H;
+  auto lines = gfx::wrap(c, F::text, s, SCREEN_W - 16, maxLines < 1 ? 1 : maxLines);
+  for (size_t i = 0; i < lines.size(); i++) gfx::text(c, F::text, 8, y + (int)i * LINE_H, lines[i], color);
 }
 
 class UpdateScreen : public Screen {
@@ -34,13 +36,15 @@ class UpdateScreen : public Screen {
     Updater& u = updater();
     if (u.active()) {
       if (isBack(e)) {
+        ui().pop();
+        ui().toast("info", "Update continues", "It finishes in the background.");
+      } else if (e.key == 'x') {
         ui().confirm("Stop the update?", "The installed firmware stays as it is.", [](bool yes) {
           if (yes) updater().cancel("cancelled on the device");
         });
       }
       return true;
     }
-    if (u.phase() == UpdatePhase::Done && !u.toSd()) return true;
     if (u.phase() == UpdatePhase::Done && e.key == K_ENTER) {
       settingsSave();
       svc().sys->reboot();
@@ -55,9 +59,9 @@ class UpdateScreen : public Screen {
     Updater& u = updater();
     gfx::header(c, "Firmware update", u.version().empty() ? "" : "v" + u.version());
     std::string from = u.fromLink() ? "From " + svc().link->host().name : "From " + baseName(u.sdPath());
-    int y = STATUS_H + 18;
+    int y = STATUS_H + HEADER_H + 2;
     gfx::text(c, F::text, 8, y, gfx::ellipsize(c, F::text, from + (u.toSd() ? " to the SD card" : " to flash"), SCREEN_W - 16), t.dim);
-    y += 16;
+    y += LINE_H + 5;
     switch (u.phase()) {
       case UpdatePhase::Running: {
         float frac = u.size() ? (float)u.written() / (float)u.size() : 0;
@@ -65,15 +69,16 @@ class UpdateScreen : public Screen {
         char b[48];
         snprintf(b, sizeof b, "%d%%   %u / %u KB", (int)(frac * 100), (unsigned)(u.written() / 1024), (unsigned)(u.size() / 1024));
         gfx::text(c, F::text, 8, y + 16, b, t.fg);
-        gfx::text(c, F::text, 8, y + 32, "Keep the device on and near Wi-Fi.", t.dim);
-        gfx::hints(c, {{"`", "stop"}});
+        paragraph(c, y + 16 + LINE_H + 4, "Keep the device on and near Wi-Fi.", t.dim);
+        gfx::hints(c, {{"x", "stop"}, {"`", "hide"}});
         break;
       }
       case UpdatePhase::Done:
         if (u.toSd()) {
+          int bh = gfx::height(c, F::bold), sh = gfx::height(c, F::small);
           gfx::text(c, F::bold, 8, y, "Saved to the SD card", t.ok);
-          gfx::text(c, F::small, 8, y + 15, gfx::ellipsize(c, F::small, baseName(u.sdPath()), SCREEN_W - 16), t.dim);
-          paragraph(c, y + 27, LAUNCHER_STEPS, t.fg, 4);
+          gfx::text(c, F::small, 8, y + bh + 1, gfx::ellipsize(c, F::small, baseName(u.sdPath()), SCREEN_W - 16), t.dim);
+          paragraph(c, y + bh + sh + 4, largeText() ? "Reboot, then install it from SD in Launcher." : LAUNCHER_STEPS, t.fg);
           gfx::hints(c, {{"enter", "reboot"}, {"`", "later"}});
         } else {
           gfx::text(c, F::bold, 8, y, "Installed. Restarting...", t.ok);
@@ -82,7 +87,7 @@ class UpdateScreen : public Screen {
         break;
       case UpdatePhase::Failed:
         gfx::text(c, F::bold, 8, y, "Update failed", t.err);
-        paragraph(c, y + 16, u.error(), t.fg, 4);
+        paragraph(c, y + gfx::height(c, F::bold) + 2, u.error(), t.fg);
         gfx::hints(c, {{"`", "back"}});
         break;
       default:
@@ -96,9 +101,9 @@ class UpdateScreen : public Screen {
 class SdUpdate : public Screen {
  public:
   SdUpdate() {
-    list_.y = STATUS_H + 16;
+    list_.y = STATUS_H + HEADER_H;
     list_.h = SCREEN_H - HINT_H - list_.y;
-    list_.rowH = 12;
+    list_.rowH = LINE_H + 1;
   }
 
   void onEnter() override { scan(); }

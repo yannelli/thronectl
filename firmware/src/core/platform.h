@@ -27,8 +27,12 @@ using Font = lgfx::IFont;
 
 static constexpr int SCREEN_W = 240;
 static constexpr int SCREEN_H = 135;
-static constexpr int STATUS_H = 12;
-static constexpr int HINT_H = 10;
+// Layout sizes. They grow with Settings > Display > Text size (applyTextSize in theme.cpp).
+inline int STATUS_H = 12;
+inline int HINT_H = 10;
+inline int HEADER_H = 16;
+inline int LINE_H = 11;  // one line of F::text
+inline int ROW_PAD = 0;  // extra height added to every list row
 
-#define FW_VERSION "0.2.0"
+#define FW_VERSION "0.3.0"
 #define THRONE_PORT 4787

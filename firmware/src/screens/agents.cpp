@@ -43,7 +43,7 @@ static const char* const FILTERS[] = {"All", "Active", "Waiting"};
 class AgentList : public Screen {
  public:
   AgentList() {
-    list_.y = STATUS_H + 16;
+    list_.y = STATUS_H + HEADER_H;
     list_.h = SCREEN_H - HINT_H - list_.y;
     list_.rowH = 24;
   }
@@ -119,7 +119,7 @@ class AgentList : public Screen {
         std::string name = a->name.empty() ? baseName(a->cwd) : a->name;
         gfx::text(cv, F::text, x + 17, y + 1, gfx::ellipsize(cv, F::text, name, w - cw - aw - 30), sel ? t.selFg : t.fg);
         std::string sub = a->status == "waiting" ? "Needs approval: y allow, d deny" : a->last.empty() ? baseName(a->cwd) : a->last;
-        gfx::text(cv, F::small, x + 17, y + 13, gfx::ellipsize(cv, F::small, sub, w - 22), a->status == "waiting" ? t.warn : t.dim);
+        gfx::text(cv, F::small, x + 17, y + gfx::height(cv, F::text) + 3, gfx::ellipsize(cv, F::small, sub, w - 22), a->status == "waiting" ? t.warn : t.dim);
       });
     }
     const Agent* a = selected();
@@ -200,14 +200,14 @@ class AgentDetail : public Screen {
     const Agent* a = store().agent(id_);
     std::string name = a ? a->name : id_;
     uint16_t nav = navKey(e);
-    int maxScroll = (int)lines_.size() > ROWS ? (int)lines_.size() - ROWS : 0;
+    int maxScroll = (int)lines_.size() > rows_ ? (int)lines_.size() - rows_ : 0;
     if (nav == K_UP || nav == K_LEFT) {
-      scroll_ += nav == K_UP ? 1 : ROWS;
+      scroll_ += nav == K_UP ? 1 : rows_;
       if (scroll_ > maxScroll) scroll_ = maxScroll;
       return true;
     }
     if (nav == K_DOWN || nav == K_RIGHT) {
-      scroll_ -= nav == K_DOWN ? 1 : ROWS;
+      scroll_ -= nav == K_DOWN ? 1 : rows_;
       if (scroll_ < 0) scroll_ = 0;
       return true;
     }
@@ -252,30 +252,46 @@ class AgentDetail : public Screen {
     uint32_t now = nowMs();
     std::string name = a ? (a->name.empty() ? baseName(a->cwd) : a->name) : id_;
     gfx::header(c, name, a ? a->status : "gone");
-    int y = STATUS_H + 17;
+    int y = STATUS_H + HEADER_H + 1;
     if (a) {
       gfx::statusDot(c, 8, y + 5, a->status, now);
       int x = 15 + gfx::chip(c, 15, y + 1, harnessShort(a->harness), t.bg, harnessColor(a->harness)) + 4;
       std::string info = baseName(a->cwd) + "  " + fmtAge(a->age) + "  " + a->backend;
       gfx::text(c, F::small, x, y + 2, gfx::ellipsize(c, F::small, info, SCREEN_W - x - 4), t.dim);
     }
-    int top = y + 13;
-    c.fillRect(0, top - 1, SCREEN_W, ROWS * 9 + 2, t.panel);
-    int first = (int)lines_.size() - ROWS - scroll_;
+    const Font* f = largeText() ? F::small : F::mono;
+    int top = y + gfx::height(c, F::small) + 5, lh = gfx::height(c, f) + 1;
+    int barH = gfx::height(c, F::text) + 3, bottom = SCREEN_H - HINT_H - (a && a->status == "waiting" ? barH : 0);
+    rows_ = (bottom - top - 1) / lh;
+    if (wrapped_ != rev_) rewrap(c, f);
+    c.fillRect(0, top - 1, SCREEN_W, rows_ * lh + 2, t.panel);
+    int first = (int)lines_.size() - rows_ - scroll_;
     if (first < 0) first = 0;
-    for (int r = 0; r < ROWS && first + r < (int)lines_.size(); r++) gfx::text(c, F::small, 2, top + r * 9, lines_[first + r], t.fg);
+    for (int r = 0; r < rows_ && first + r < (int)lines_.size(); r++) gfx::text(c, f, 2, top + r * lh, lines_[first + r], t.fg);
     if (lines_.empty()) gfx::text(c, F::small, 4, top + 2, inflight_ ? "loading..." : "(no output yet)", t.dim);
     if (scroll_) gfx::chip(c, SCREEN_W - 40, top + 1, "-" + std::to_string(scroll_), t.bg, t.dim);
     if (a && a->status == "waiting") {
-      int by = SCREEN_H - HINT_H - 13;
-      c.fillRect(0, by, SCREEN_W, 13, (now / 500) % 2 ? t.warn : blend(t.warn, t.bg, 60));
+      int by = bottom;
+      c.fillRect(0, by, SCREEN_W, barH, (now / 500) % 2 ? t.warn : blend(t.warn, t.bg, 60));
       gfx::text(c, F::text, SCREEN_W / 2, by + 2, "Needs approval  y allow  d deny", t.bg, gfx::Datum::top_center);
     }
     gfx::hints(c, {{"ent", "prompt"}, {"t", "term"}, {"l", "reply"}, {"v", "read"}, {"x", "stop"}, {"k", "end"}});
   }
 
  private:
-  static constexpr int ROWS = 9, COLS = 39;
+  static constexpr int COLS = 39;
+
+  /** Small text wraps in the 6 px mono font; Normal text wraps the larger proportional font by width. */
+  void rewrap(Canvas& c, const Font* f) {
+    std::vector<std::string> out;
+    for (const std::string& l : raw_) {
+      if (f == F::mono) wrapMono(l, COLS, out);
+      else for (std::string& w : gfx::wrap(c, f, l, SCREEN_W - 4)) out.push_back(std::move(w));
+    }
+    while (!out.empty() && out.back().empty()) out.pop_back();
+    lines_ = std::move(out);
+    wrapped_ = rev_;
+  }
 
   void poll() {
     if (!svc().link->ready()) return;
@@ -288,15 +304,16 @@ class AgentDetail : public Screen {
       inflight_ = false;
       polled_ = nowMs();
       if (!ok) return;
-      std::vector<std::string> out;
-      for (JsonVariantConst l : r["lines"].as<JsonArrayConst>()) wrapMono(l.as<const char*>() ? l.as<const char*>() : "", COLS, out);
-      while (!out.empty() && out.back().empty()) out.pop_back();
-      lines_ = std::move(out);
+      raw_.clear();
+      for (JsonVariantConst l : r["lines"].as<JsonArrayConst>()) raw_.push_back(l.as<const char*>() ? l.as<const char*>() : "");
+      rev_++;
     }));
   }
 
   std::string id_;
-  std::vector<std::string> lines_;
+  std::vector<std::string> raw_, lines_;
+  uint32_t rev_ = 0, wrapped_ = 0;
+  int rows_ = 9;
   int scroll_ = 0;
   bool inflight_ = false;
   uint32_t polled_ = 0;

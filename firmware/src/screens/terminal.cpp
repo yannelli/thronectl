@@ -219,7 +219,8 @@ class Terminal : public Screen {
   }
 
   bool onKey(const KeyEvent& e) override {
-    if (e.opt && (e.key == 'q' || e.key == '`' || e.key == K_ESC)) { ui().pop(); return true; }
+    // The Esc keycap leaves; fn+` sends Esc to the host and Opt+` types a backtick.
+    if ((e.opt && e.key == 'q') || (e.key == '`' && e.plain())) { leave(); return true; }
     if (exited_ || !tid_) {
       if (isBack(e) || e.key == K_ENTER) ui().pop();
       return true;
@@ -238,15 +239,22 @@ class Terminal : public Screen {
   void draw(Canvas& c) override {
     const Theme& t = T();
     c.fillRect(0, 0, SCREEN_W, 10, t.panel);
-    gfx::text(c, F::small, 3, 1, gfx::ellipsize(c, F::small, title_, 150), t.accent);
-    std::string right = !state_.empty() ? state_ : exited_ ? "exited" : "opt+q quit";
-    gfx::text(c, F::small, SCREEN_W - 3, 1, gfx::ellipsize(c, F::small, right, 120), state_.empty() && !exited_ ? t.dim : t.warn,
+    gfx::text(c, F::glcd, 3, 1, gfx::ellipsize(c, F::glcd, title_, 150), t.accent);
+    std::string right = !state_.empty() ? state_ : exited_ ? "exited" : "` back  fn+` esc";
+    gfx::text(c, F::glcd, SCREEN_W - 3, 1, gfx::ellipsize(c, F::glcd, right, 120), state_.empty() && !exited_ ? t.dim : t.warn,
               gfx::Datum::top_right);
     if (!tid_ && state_.empty()) gfx::spinner(c, SCREEN_W / 2, 70, 8, nowMs(), t.accent);
     drawGrid(c, t);
   }
 
  private:
+  /** A second press within 2 s closes a running shell, so one stray Esc does not end it. */
+  void leave() {
+    if (!agent_.empty() || !tid_ || exited_ || elapsedMs(nowMs(), escAt_) < 2000) return ui().pop();
+    escAt_ = nowMs();
+    ui().toast("info", "Press ` again to close the shell", "", 2000);
+  }
+
   std::string encode(const KeyEvent& e) {
     switch (e.key) {
       case K_UP: return e.shift ? "\x1b[5~" : "\x1b[A";
@@ -313,7 +321,7 @@ class Terminal : public Screen {
   }
 
   void drawGrid(Canvas& c, const Theme& t) {
-    const Font* font = small_ ? F::tiny : F::small;
+    const Font* font = small_ ? F::tiny : F::glcd;
     c.setFont(font);
     c.setTextDatum(lgfx::textdatum_t::top_left);
     int y0 = 10;
@@ -375,6 +383,7 @@ class Terminal : public Screen {
 
   std::string agent_, title_, state_, out_;
   bool small_ = false, exited_ = false, cv_ = true;
+  uint32_t escAt_ = 0x80000000u;
   int cols_, rows_, cw_, ch_, cx_ = 0, cy_ = 0;
   int tid_ = 0;
   std::vector<Cell> grid_;

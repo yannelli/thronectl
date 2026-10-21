@@ -6,6 +6,7 @@ enum class UpdatePhase : uint8_t { Idle, Running, Done, Failed };
 /** One firmware update: chunks from the host link or an SD image, written to flash or to the SD card. */
 class Updater {
  public:
+  void reset();
   /** Reads the image from the host with ota.read. toSd saves it for Launcher instead of flashing it. */
   void startLink(const std::string& version, uint32_t size, const std::string& sha256, bool toSd);
   void startSd(const std::string& path);
@@ -32,7 +33,6 @@ class Updater {
   static constexpr uint32_t CHUNK = 8192;
 
  private:
-  void reset();
   void request();
   void fail(const std::string& why);
   void complete();

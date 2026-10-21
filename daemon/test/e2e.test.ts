@@ -117,7 +117,8 @@ test("pair, reconnect without prompt, and use the API", async () => {
   await dev.call("agent.send", { id, text: "ping" });
   await until(async () => (await dev.call<{ lines: string[] }>("agent.tail", { id, n: 10 })).lines.join("\n").includes("got ping") || undefined);
   await until(() => events.find((x) => x.e === "agents" && (x.d.agents as { id: string }[]).some((a) => a.id === id)));
-  await until(() => events.find((x) => x.e === "notify" && x.d.agent === id && x.d.kind === "done"), 10_000);
+  const done = await until(() => events.find((x) => x.e === "notify" && x.d.agent === id && x.d.kind === "done"), 10_000);
+  assert.equal(typeof done.d.secs, "number", "done alerts carry the turn length");
 
   const { tid } = await dev.call<{ tid: number }>("term.open", { agent: id, cols: 40, rows: 10 });
   await until(() => events.find((x) => x.e === "term" && x.d.tid === tid && x.d.full));
@@ -135,4 +136,27 @@ test("pair, reconnect without prompt, and use the API", async () => {
   await assert.rejects(dev.call("agent.send", { id: "d-999", text: "x" }), /no such agent/);
   await assert.rejects(dev.call("nope"), /unknown method/);
   dev.close();
+});
+
+test("each device gets stats at the interval it asked for", async () => {
+  const keys = generateKeyPair();
+  const known = new Map<string, string>();
+  const fast = new SimDevice(keys, "Fast", known);
+  await fast.connect("127.0.0.1", port);
+  const slow = new SimDevice(generateKeyPair(), "Slow", new Map());
+  await slow.connect("127.0.0.1", port);
+  const counts = { fast: 0, slow: 0, off: 0 };
+  fast.onEvent = (e) => { if (e === "stats") counts.fast++; };
+  slow.onEvent = (e) => { if (e === "stats") counts.slow++; };
+  await fast.call("sub", { topics: ["stats"], ms: 1000 });
+  await slow.call("sub", { topics: ["stats"], ms: 60_000 });
+  await sleep(3300);
+  assert.ok(counts.fast >= 3, `fast device got ${counts.fast} stats`);
+  assert.equal(counts.slow, 1, "slow device gets the first sample only");
+  await fast.call("sub", { topics: ["agents"] });
+  fast.onEvent = (e) => { if (e === "stats") counts.off++; };
+  await sleep(1600);
+  assert.equal(counts.off, 0, "no stats topic means no stats");
+  fast.close();
+  slow.close();
 });

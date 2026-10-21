@@ -15,6 +15,7 @@ import { configDir, paths, VERSION } from "./paths.js";
 import { Daemon } from "./server.js";
 import { installService, uninstallService } from "./service.js";
 import { runSim } from "./sim-repl.js";
+import { fixSpawnHelper, spawnHelpers } from "./spawn.js";
 import { cmdFlash, cmdUpdate } from "./update.js";
 import { describeStt } from "./voice/stt.js";
 import { describeTts } from "./voice/tts.js";
@@ -119,14 +120,31 @@ async function cmdDevices(args: string[]): Promise<void> {
 async function cmdStatus(): Promise<void> {
   const s = await controlRequest<{
     host: { name: string; id: string; os: string; paseo: boolean }; port: number;
-    connected: { name: string; addr: string; fw: string; since: number }[];
+    connected: { name: string; addr: string; fw: string; since: number; stats?: number }[];
     agents: { working: number; idle: number; waiting: number }; stt: string; tts: string; pending: PairRequest[];
   }>("status");
   console.log(`${green("●")} ${bold(s.host.name)} ${dim(`id ${s.host.id}`)} on port ${s.port}`);
   console.log(`  agents: ${s.agents.working} working, ${s.agents.waiting} waiting, ${s.agents.idle} idle   paseo: ${s.host.paseo ? "yes" : "no"}`);
   console.log(`  speech-to-text: ${s.stt}\n  text-to-speech: ${s.tts}`);
-  console.log(`  devices online: ${s.connected.length ? s.connected.map((c) => `${c.name} (${c.addr})`).join(", ") : "none"}`);
+  if (!s.connected.length) console.log("  devices online: none");
+  for (const c of s.connected) {
+    const mins = Math.round((Date.now() - c.since) / 60_000);
+    const stats = c.stats ? `stats every ${c.stats / 1000} s` : "stats paused";
+    console.log(`  device: ${bold(c.name)} ${dim(`${c.addr}  fw ${c.fw || "?"}  ${stats}  online ${mins} min`)}`);
+  }
   if (s.pending.length) console.log(`  ${bold(`${s.pending.length} pairing request(s) waiting`)}: run thronectl pair`);
+}
+
+/** Checks node-pty's spawn-helper, which must be executable on macOS. Fixes it when it can. */
+function ptyStatus(): string {
+  try {
+    const fixed = fixSpawnHelper();
+    if (fixed.length) return green(`fixed: made ${fixed.join(", ")} executable`);
+    const helpers = spawnHelpers();
+    return green(helpers.length ? `ok (${helpers.length} spawn-helper)` : "ok");
+  } catch (e) {
+    return `node-pty problem: ${(e as Error).message}`;
+  }
 }
 
 async function cmdDoctor(): Promise<void> {
@@ -145,6 +163,7 @@ async function cmdDoctor(): Promise<void> {
   console.log(`${bold("Speech-to-text:")} ${describeStt(cfg)}`);
   console.log(`${bold("Text-to-speech:")} ${describeTts(cfg)}`);
   console.log(`${bold("Shell access:")} ${cfg.allowShell ? `enabled (${cfg.shell})` : "disabled"}`);
+  console.log(`${bold("Terminals:")} ${ptyStatus()}`);
   const running = await controlRequest("status").then(() => true, () => false);
   console.log(`${bold("Daemon:")} ${running ? green("running") : "not running (thronectl daemon or thronectl install)"}`);
 }

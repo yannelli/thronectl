@@ -14,9 +14,11 @@ Screen* makePairing();
 bool pairingVisible();
 Screen* makeWifi();
 Screen* makeSettings();
+Screen* makeSettingsCategory(int idx, int sel);
 Screen* makeNotices();
 Screen* makeTextView(const std::string& title, const std::string& text);
 Screen* makeAbout();
+Screen* makeKeyHelp();
 /** Progress of the running firmware update (see core/updater.h). */
 Screen* makeUpdate();
 /** Picks a firmware image on the SD card. Under Launcher it explains the Launcher install instead. */

@@ -54,7 +54,7 @@ static constexpr int HIST = 64;
 class Store {
  public:
   Stats stats;
-  float cpuHist[HIST] = {0}, memHist[HIST] = {0};
+  float cpuHist[HIST] = {0}, memHist[HIST] = {0}, rxHist[HIST] = {0}, txHist[HIST] = {0};
   int histLen = 0, histPos = 0;
   std::vector<Agent> agents;
   uint32_t agentsRev = 0;

@@ -16,6 +16,7 @@ export class AgentManager extends EventEmitter {
   private snapshot: AgentInfo[] = [];
   private snapshotKey = "";
   private seeded = false;
+  private workingSince = new Map<string, number>();
   private timer?: NodeJS.Timeout;
   private refreshing?: Promise<void>;
 
@@ -78,15 +79,24 @@ export class AgentManager extends EventEmitter {
       this.seeded = true;
       return;
     }
+    const now = Date.now();
     for (const a of next) {
       const was = prev.get(a.id);
+      // A turn runs from the first "working" until idle or exited; waiting for approval stays inside it.
+      if (a.status === "working" && !this.workingSince.has(a.id)) this.workingSince.set(a.id, now);
       if (!was || was === a.status) continue;
       let ev: NotifyEvent | undefined;
       if (a.status === "waiting") ev = { kind: "attn", title: `${a.name}`, body: "Needs approval", agent: a.id };
       else if (a.status === "error") ev = { kind: "error", title: `${a.name}`, body: "Agent error", agent: a.id };
-      else if (was === "working" && (a.status === "idle" || a.status === "exited")) ev = { kind: "done", title: `${a.name}`, body: a.last || "Finished", agent: a.id };
+      else if (was === "working" && (a.status === "idle" || a.status === "exited")) {
+        const since = this.workingSince.get(a.id);
+        ev = { kind: "done", title: `${a.name}`, body: a.last || "Finished", agent: a.id };
+        if (since !== undefined) ev.secs = Math.round((now - since) / 1000);
+      }
+      if (a.status === "idle" || a.status === "exited" || a.status === "error") this.workingSince.delete(a.id);
       if (ev) this.emit("notify", ev);
     }
+    for (const id of this.workingSince.keys()) if (!next.some((a) => a.id === id)) this.workingSince.delete(id);
   }
 
   private route(id: string): AgentBackend {

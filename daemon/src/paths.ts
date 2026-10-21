@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.3.0";
 export const DEFAULT_PORT = 4787;
 
 export function configDir(): string {

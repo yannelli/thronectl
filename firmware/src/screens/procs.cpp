@@ -10,7 +10,7 @@ namespace {
 class Procs : public Screen {
  public:
   Procs() {
-    list_.y = STATUS_H + 16 + 10;
+    list_.y = STATUS_H + HEADER_H + LINE_H - 1;
     list_.h = SCREEN_H - HINT_H - list_.y;
     list_.rowH = 11;
   }
@@ -53,9 +53,10 @@ class Procs : public Screen {
     char right[40];
     snprintf(right, sizeof right, "%u procs  by %s", (unsigned)s.procs, byMem_ ? "mem" : "cpu");
     gfx::header(c, "Processes", right);
-    int hy = STATUS_H + 17;
-    gfx::text(c, F::small, 32, hy, "PID", t.dim, gfx::Datum::top_right);
-    gfx::text(c, F::small, 38, hy, "NAME", t.dim);
+    int hy = STATUS_H + HEADER_H + 1;
+    const int px = gfx::width(c, F::small, "00000") + 5, nx = px + 6;
+    gfx::text(c, F::small, px, hy, "PID", t.dim, gfx::Datum::top_right);
+    gfx::text(c, F::small, nx, hy, "NAME", t.dim);
     gfx::text(c, F::small, 196, hy, "CPU", byMem_ ? t.dim : t.accent, gfx::Datum::top_right);
     gfx::text(c, F::small, 234, hy, "MEM", byMem_ ? t.accent : t.dim, gfx::Datum::top_right);
     if (!svc().link->ready()) {
@@ -67,8 +68,8 @@ class Procs : public Screen {
         const Proc& p = procs_[i];
         char num[16];
         snprintf(num, sizeof num, "%d", p.pid);
-        gfx::text(cv, F::small, 32, y + 2, num, t.dim, gfx::Datum::top_right);
-        gfx::text(cv, F::small, 38, y + 2, gfx::ellipsize(cv, F::small, p.name, 118), sel ? t.selFg : t.fg);
+        gfx::text(cv, F::small, px, y + 2, num, t.dim, gfx::Datum::top_right);
+        gfx::text(cv, F::small, nx, y + 2, gfx::ellipsize(cv, F::small, p.name, 156 - nx), sel ? t.selFg : t.fg);
         snprintf(num, sizeof num, "%.1f", p.cpu);
         gfx::text(cv, F::small, 196, y + 2, num, p.cpu > 50 ? t.err : p.cpu > 15 ? t.warn : t.fg, gfx::Datum::top_right);
         snprintf(num, sizeof num, "%.1f", p.mem);
