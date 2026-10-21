@@ -24,5 +24,5 @@ static constexpr int SCREEN_H = 135;
 static constexpr int STATUS_H = 12;
 static constexpr int HINT_H = 10;
 
-#define FW_VERSION "0.1.0"
+#define FW_VERSION "0.1.1"
 #define THRONE_PORT 4787

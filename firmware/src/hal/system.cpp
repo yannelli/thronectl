@@ -1,7 +1,6 @@
 #include <M5Cardputer.h>
 #include <Preferences.h>
 #include <esp_system.h>
-#include <nvs_flash.h>
 #include <sys/time.h>
 #include <ctime>
 #include "hal.h"
@@ -97,7 +96,8 @@ void SystemHal::startNtp() {
 void SystemHal::reboot() { ESP.restart(); }
 
 void SystemHal::factoryReset() {
-  nvs_flash_erase();
+  // Only this firmware's namespace: a boot manager such as Launcher keeps its own NVS data.
+  NvsStore().wipe();
   ESP.restart();
 }
 

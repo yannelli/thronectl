@@ -40,12 +40,13 @@ To run it in the foreground instead: `thronectl daemon`. Pairing requests are th
 
 Get `thronectl-cardputer-adv-v<version>.bin` from the [releases](https://github.com/yannelli/thronectl/releases). It is one merged image for offset `0x0`.
 
+- **[Launcher](https://github.com/bmorcelli/Launcher):** copy the `.bin` to the SD card, then in Launcher pick SD, select the file and choose Install. Launcher reads the partition table in the image and installs only the app. Factory reset in thronectl clears only its own data, so Launcher keeps its settings.
 - **Browser:** open <https://espressif.github.io/esptool-js/>, connect, set the flash address to `0x0`, pick the `.bin`, then press Program.
 - **esptool:**
 
   ```sh
   pip install esptool
-  esptool.py --chip esp32s3 --baud 1500000 write_flash 0x0 thronectl-cardputer-adv-v0.1.0.bin
+  esptool.py --chip esp32s3 --baud 1500000 write_flash 0x0 thronectl-cardputer-adv-v0.1.1.bin
   ```
 
 - **From source:** `cd firmware && pio run -t upload`
