@@ -36,7 +36,7 @@ class Hosts : public Screen {
   void update(uint32_t now) override {
     size_t n = svc().net->beacons().size();
     if (n != seen_) rebuild();
-    if (!svc().net->discovering() && now - scanned_ > 8000) scan();
+    if (!svc().net->discovering() && elapsedMs(now, scanned_) > 8000) scan();
   }
 
   bool onKey(const KeyEvent& e) override {
@@ -175,7 +175,7 @@ class Pairing : public Screen {
   void update(uint32_t now) override {
     LinkState s = svc().link->state();
     if (s == LinkState::Ready && !doneAt_) doneAt_ = now;
-    if (doneAt_ && now - doneAt_ > 1400) {
+    if (doneAt_ && elapsedMs(now, doneAt_) > 1400) {
       doneAt_ = 0;
       ui().home();
     }

@@ -100,8 +100,9 @@ void Settings::removeHost(const std::string& id) {
 }
 
 void Settings::rememberWifi(const std::string& ssid, const std::string& pass) {
-  forgetWifi(ssid);
-  wifi.insert(wifi.begin(), WifiNet{ssid, pass});
+  WifiNet entry{ssid, pass};  // copy first: the arguments may point into `wifi`
+  forgetWifi(entry.ssid);
+  wifi.insert(wifi.begin(), entry);
   if (wifi.size() > 5) wifi.pop_back();
 }
 

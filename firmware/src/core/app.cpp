@@ -229,7 +229,7 @@ void App::updateLed(uint32_t now) {
 }
 
 uint32_t App::frameInterval(uint32_t now) const {
-  if (now - lastActivity_ < 3000 || now - termAt_ < 1000 || voice.active() || ui().overlay) return 33;
+  if (elapsedMs(now, lastActivity_) < 3000 || elapsedMs(now, termAt_) < 1000 || voice.active() || ui().overlay) return 33;
   LinkState st = svc().link->state();
   bool busy = st == LinkState::Connecting || st == LinkState::Handshake || st == LinkState::Pairing;
   if (busy || store().countStatus("working") || store().countStatus("waiting") || now < ledFlashUntil_) return 80;
@@ -250,7 +250,7 @@ void App::loop(uint32_t now) {
     }
   }
   voice.update(now);
-  uint32_t quiet = now - lastActivity_;
+  uint32_t quiet = elapsedMs(now, lastActivity_);
   uint32_t dimMs = DIM_MS[s.dimAfter % 6], offMs = OFF_MS[s.offAfter % 6];
   if (voice.active() || sv.audio->speaking()) lastActivity_ = now;
   else if (!screenOff_ && offMs && quiet > offMs) {

@@ -9,3 +9,4 @@ daemon/dist/
 daemon/dist-test/
 firmware/tools/snapshot/build/
 firmware/dist/
+firmware/tools/keyfuzz/build/

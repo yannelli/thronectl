@@ -26,6 +26,12 @@ class Wifi : public Screen {
     rebuild();
   }
 
+  // A scan can finish while the splash or a dialog is on top, when update() does not run.
+  void onResume() override {
+    scanning_ = svc().net->scanning();
+    rebuild();
+  }
+
   void update(uint32_t) override {
     NetApi* n = svc().net;
     bool sc = n->scanning();

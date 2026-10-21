@@ -192,7 +192,7 @@ class AgentDetail : public Screen {
   void onResume() override { poll(); }
 
   void update(uint32_t now) override {
-    if (now - polled_ > 1500 && !inflight_) poll();
+    if (elapsedMs(now, polled_) > 1500 && !inflight_) poll();
   }
 
   bool onKey(const KeyEvent& e) override {

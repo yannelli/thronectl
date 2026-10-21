@@ -46,7 +46,7 @@ Get `thronectl-cardputer-adv-v<version>.bin` from the [releases](https://github.
 
   ```sh
   pip install esptool
-  esptool.py --chip esp32s3 --baud 1500000 write_flash 0x0 thronectl-cardputer-adv-v0.1.1.bin
+  esptool.py --chip esp32s3 --baud 1500000 write_flash 0x0 thronectl-cardputer-adv-v0.1.2.bin
   ```
 
 - **From source:** `cd firmware && pio run -t upload`
@@ -246,6 +246,7 @@ docs/       Protocol spec and screenshots
 - Simulated device REPL: `thronectl sim`.
 - Firmware build: `cd firmware && pio run`. To make the release image: `tools/merge.sh`.
 - Screen snapshots without hardware: `firmware/tools/snapshot/build.sh`, then run the binary it prints with an output folder. It renders every screen to PNG with mock data.
+- Key fuzzer: `firmware/tools/keyfuzz/run.sh [steps] [seed]` runs the real app loop with random keys, link and Wi-Fi changes under AddressSanitizer. It models the device clock (handlers run after the loop reads `millis()`) and fails if a key press leaves the screen off.
 - Interop check: `firmware/tools/linkcheck/run.sh` builds the firmware link and crypto code for the host. It pairs with a throwaway daemon and runs the RPC methods. It needs mbedTLS 2.28 (`libmbedtls-dev`, or set `MBEDTLS_ROOT`).
 
 ## Hardware notes

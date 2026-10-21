@@ -52,7 +52,7 @@ static void drawToast(Canvas& c, const Toast& t, uint32_t now) {
   const Theme& th = T();
   uint16_t col = t.kind == "attn" ? th.warn : t.kind == "error" ? th.err : t.kind == "done" ? th.ok : th.accent;
   int h = t.body.empty() ? 18 : 28;
-  uint32_t age = now - t.start;
+  uint32_t age = elapsedMs(now, t.start);
   int slide = age < 160 ? (int)((160 - age) * (h + 6) / 160) : 0;
   int y = SCREEN_H - HINT_H - h - 2 + slide;
   c.fillRoundRect(6, y, SCREEN_W - 12, h, 5, th.panel2);

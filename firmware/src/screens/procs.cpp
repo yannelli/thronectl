@@ -18,7 +18,7 @@ class Procs : public Screen {
   void onEnter() override { poll(); }
 
   void update(uint32_t now) override {
-    if (!inflight_ && now - polled_ > 2500) poll();
+    if (!inflight_ && elapsedMs(now, polled_) > 2500) poll();
   }
 
   bool onKey(const KeyEvent& e) override {

@@ -74,7 +74,7 @@ void Net::loop(uint32_t now) {
   if (up && !wasUp_ && onConnected) onConnected();
   wasUp_ = up;
 
-  if (st_ == WifiState::Connecting && now - attemptAt_ > JOIN_TIMEOUT_MS) {
+  if (st_ == WifiState::Connecting && elapsedMs(now, attemptAt_) > JOIN_TIMEOUT_MS) {
     if (fromSaved_) tryIndex(savedIdx_ + 1);
     else {
       st_ = WifiState::Failed;

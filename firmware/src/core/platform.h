@@ -16,6 +16,12 @@ inline uint32_t nowMs() { return millis(); }
 uint32_t nowMs();
 #endif
 
+/** Milliseconds from `since` to `now`, or 0 when `since` was stamped after `now` was read. */
+inline uint32_t elapsedMs(uint32_t now, uint32_t since) {
+  int32_t d = (int32_t)(now - since);
+  return d > 0 ? (uint32_t)d : 0;
+}
+
 using Canvas = lgfx::LGFX_Sprite;
 using Font = lgfx::IFont;
 
@@ -24,5 +30,5 @@ static constexpr int SCREEN_H = 135;
 static constexpr int STATUS_H = 12;
 static constexpr int HINT_H = 10;
 
-#define FW_VERSION "0.1.1"
+#define FW_VERSION "0.1.2"
 #define THRONE_PORT 4787

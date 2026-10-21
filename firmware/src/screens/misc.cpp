@@ -30,11 +30,11 @@ class Splash : public Screen {
   bool statusBar() const override { return false; }
   bool onKey(const KeyEvent&) override { ui().pop(); return true; }
   void update(uint32_t now) override {
-    if (now - t0_ > (settings().animations ? 1700u : 600u)) ui().pop();
+    if (elapsedMs(now, t0_) > (settings().animations ? 1700u : 600u)) ui().pop();
   }
   void draw(Canvas& c) override {
     const Theme& t = T();
-    uint32_t e = nowMs() - t0_;
+    uint32_t e = elapsedMs(nowMs(), t0_);
     float k = settings().animations ? (e > 700 ? 1.0f : e / 700.0f) : 1.0f;
     float ease = 1 - (1 - k) * (1 - k) * (1 - k);
     c.fillScreen(t.bg);
@@ -86,7 +86,7 @@ class Notices : public Screen {
       const Notice& n = ns[i];
       uint16_t col = n.kind == "attn" ? t.warn : n.kind == "error" ? t.err : n.kind == "done" ? t.ok : t.accent;
       cv.fillRoundRect(x + 5, y + 3, 4, 18, 2, col);
-      std::string age = fmtAge((now - n.at) / 1000);
+      std::string age = fmtAge(elapsedMs(now, n.at) / 1000);
       gfx::text(cv, F::small, x + w - 3, y + 3, age, t.dim, gfx::Datum::top_right);
       gfx::text(cv, F::text, x + 14, y + 1, gfx::ellipsize(cv, F::text, n.title, w - 44), sel ? t.selFg : t.fg);
       gfx::text(cv, F::small, x + 14, y + 13, gfx::ellipsize(cv, F::small, n.body, w - 18), t.dim);

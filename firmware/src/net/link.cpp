@@ -324,7 +324,7 @@ void Link::loop(uint32_t now) {
       st_ = LinkState::Handshake;
       stateAt_ = lastRx_ = now;
       sendHello();
-    } else if (now - stateAt_ > 6000) {
+    } else if (elapsedMs(now, stateAt_) > 6000) {
       return fail("Host did not answer");
     }
     return;
@@ -333,15 +333,15 @@ void Link::loop(uint32_t now) {
   if (!receive()) return fail(st_ == LinkState::Pairing ? "Pairing closed by the host" : "Connection closed by the host");
   if (fd_ < 0) return;
   if (!flush()) return fail("Connection lost");
-  if (st_ == LinkState::Handshake && now - stateAt_ > 15000) return fail("Handshake timed out");
-  if (st_ == LinkState::Pairing && now - stateAt_ > 130000) return fail("Pairing timed out");
+  if (st_ == LinkState::Handshake && elapsedMs(now, stateAt_) > 15000) return fail("Handshake timed out");
+  if (st_ == LinkState::Pairing && elapsedMs(now, stateAt_) > 130000) return fail("Pairing timed out");
   if (st_ == LinkState::Ready) {
-    if (now - lastPing_ > 10000) {
+    if (elapsedMs(now, lastPing_) > 10000) {
       lastPing_ = now;
       pingAt_ = now;
       call("ping", [this](bool ok, JsonVariantConst, const char*) { if (ok) rtt_ = millis() - pingAt_; });
     }
-    if (now - lastRx_ > 30000) return fail("Host stopped responding");
+    if (elapsedMs(now, lastRx_) > 30000) return fail("Host stopped responding");
     for (auto it = pending_.begin(); it != pending_.end();) {
       if ((int32_t)(now - it->second.deadline) > 0) {
         RpcCallback cb = it->second.cb;

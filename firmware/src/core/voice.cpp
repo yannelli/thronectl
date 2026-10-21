@@ -109,7 +109,7 @@ void Voice::update(uint32_t now) {
   Services& s = svc();
   s.audio->micPoll([&](const int16_t* pcm, size_t n) { s.link->sendMic(pcm, n); samples_ += n; });
   level_ = level_ * 0.6f + s.audio->micLevel() * 0.4f;
-  if (now - t0_ > MAX_REC_MS || !s.link->ready()) stopRecording();
+  if (elapsedMs(now, t0_) > MAX_REC_MS || !s.link->ready()) stopRecording();
 }
 
 bool Voice::onKey(const KeyEvent& e) {
@@ -140,7 +140,7 @@ void Voice::draw(Canvas& c) {
     c.fillCircle(x + 30, y + 34, r, blend(t.panel, t.err, (uint8_t)(90 + 80 * pulse)));
     gfx::mic(c, x + 30, y + 34, 18, t.fg);
     char secs[16];
-    snprintf(secs, sizeof secs, "%.1fs", (now - t0_) / 1000.0f);
+    snprintf(secs, sizeof secs, "%.1fs", (elapsedMs(now, t0_)) / 1000.0f);
     gfx::text(c, F::bold, x + 56, y + 14, "Listening", t.fg);
     gfx::text(c, F::small, x + w - 8, y + 17, secs, t.dim, gfx::Datum::top_right);
     gfx::text(c, F::small, x + 56, y + 32, gfx::ellipsize(c, F::small, "to " + target_, w - 64), t.accent);
