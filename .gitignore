@@ -7,3 +7,4 @@ daemon/dist/
 *.log
 .DS_Store
 daemon/dist-test/
+firmware/tools/snapshot/build/
