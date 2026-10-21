@@ -1,0 +1,8 @@
+# firmware
+firmware/.pio/
+firmware/.vscode/
+# daemon
+daemon/node_modules/
+daemon/dist/
+*.log
+.DS_Store
