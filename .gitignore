@@ -8,3 +8,4 @@ daemon/dist/
 .DS_Store
 daemon/dist-test/
 firmware/tools/snapshot/build/
+firmware/dist/

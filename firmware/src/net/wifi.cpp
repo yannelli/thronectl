@@ -6,8 +6,8 @@
 static constexpr uint32_t JOIN_TIMEOUT_MS = 15000;
 
 void Net::begin(const std::string& hostname) {
-  WiFi.mode(WIFI_STA);
   WiFi.setHostname(hostname.c_str());
+  WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(false);
 }

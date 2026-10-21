@@ -91,7 +91,7 @@ async function cmdDaemon(args: string[]): Promise<void> {
 
 async function cmdPair(): Promise<void> {
   const ask = pairPrompter(async (req, yes) => { await controlRequest("pair.answer", { id: req.id, yes }); });
-  console.log(`Waiting for pairing requests. On the Cardputer open ${bold("Hosts > Pair new host")}. Ctrl-C to stop.`);
+  console.log(`Waiting for pairing requests. On the Cardputer press ${bold("h")} (Hosts) and pick this computer. Ctrl-C to stop.`);
   const sock = await controlStream("pair.watch", (ev) => {
     if (ev.ev === "pair.request") ask(ev.req as PairRequest);
     if (ev.ev === "pair.resolved" && ev.reason === "timeout") console.log(dim(`\n  Request ${String(ev.id)} expired.`));

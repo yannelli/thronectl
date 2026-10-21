@@ -17,6 +17,8 @@ class App {
 
   void activity();
   bool screenOn() const { return !screenOff_; }
+  /** Milliseconds between frames: fast while the user is active or something animates. */
+  uint32_t frameInterval(uint32_t now) const;
   void applyDisplay();
   void applySound();
 
@@ -40,7 +42,7 @@ class App {
   uint32_t lastActivity_ = 0;
   bool dimmed_ = false, screenOff_ = false, manualOffline_ = false;
   uint32_t nextReconnect_ = 0, backoff_ = 2000;
-  uint32_t ledFlashUntil_ = 0;
+  uint32_t ledFlashUntil_ = 0, termAt_ = 0;
   uint16_t ledFlashColor_ = 0;
 };
 

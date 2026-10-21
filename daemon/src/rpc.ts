@@ -16,6 +16,8 @@ const MAX_TERMS = 4;
 
 export interface HostInfo {
   id: string; name: string; hostname: string; os: string; arch: string; user: string; ver: string; paseo: boolean;
+  tzOff: number; // minutes east of UTC
+  time: number; // unix ms
 }
 
 export interface DaemonContext {
@@ -114,6 +116,11 @@ export class DeviceSession {
       "agent.kill": async (p) => { await a.kill(str(p, "id")); return {}; },
       "agent.tail": async (p) => ({ lines: await a.tail(str(p, "id"), clamp(num(p, "n", 40), 1, 200)) }),
       "agent.last": async (p) => ({ text: (await a.last(str(p, "id"))).slice(0, 4000) }),
+      "agent.speak": async (p) => {
+        const text = await a.last(str(p, "id"));
+        if (!speakable(text, 10)) throw new Error("no reply to read yet");
+        return { ms: await this.say(text, str(p, "voice", false)) };
+      },
       "agent.permit": async (p) => { await a.permit(str(p, "id"), p.allow === true); return {}; },
       "term.open": (p) => this.openTerm(p),
       "term.input": (p) => {

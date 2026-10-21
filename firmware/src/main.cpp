@@ -75,7 +75,7 @@ void loop() {
   sys.loop(now);
   app().loop(now);
   ui().tick(now);
-  if (app().screenOn() && now - lastFrame >= 33) {
+  if (app().screenOn() && now - lastFrame >= app().frameInterval(now)) {
     lastFrame = now;
     ui().render(*canvas);
     canvas->pushSprite(0, 0);

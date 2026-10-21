@@ -15,12 +15,12 @@ uint32_t nowMs() { return g_now; }
 class MockLink : public LinkApi {
  public:
   LinkState st = LinkState::Ready;
-  std::string err, code = "482913", target = "Ryan's MacBook Pro";
+  std::string err, code = "482913", target = "Studio MacBook";
   HostInfo h;
   std::map<std::string, std::string> replies;
   MockLink() {
-    h.id = "9f2c1a"; h.name = "Ryan's MacBook Pro"; h.hostname = "rmbp"; h.os = "darwin"; h.arch = "arm64";
-    h.user = "ryan"; h.ver = "0.1.0"; h.paseo = true;
+    h.id = "9f2c1a"; h.name = "Studio MacBook"; h.hostname = "studio"; h.os = "darwin"; h.arch = "arm64";
+    h.user = "dev"; h.ver = "0.1.0"; h.paseo = true;
   }
   LinkState state() const override { return st; }
   const std::string& error() const override { return err; }
@@ -150,11 +150,11 @@ static void seed() {
     store().applyStats(d);
   }
   deserializeJson(d, R"J({"agents":[
-    {"id":"a1b2c3","name":"fix login redirect","harness":"paseo:claude","backend":"paseo","status":"waiting","cwd":"/Users/ryan/code/webapp","age":340,"last":"Wants to run: npm test"},
-    {"id":"d-1","name":"refactor billing","harness":"direct:codex","backend":"direct","status":"working","cwd":"/Users/ryan/code/api","age":1260,"last":"Editing src/billing/invoice.ts"},
-    {"id":"d-2","name":"write docs","harness":"direct:pi","backend":"direct","status":"working","cwd":"/Users/ryan/code/docs","age":95,"last":"Reading README.md"},
-    {"id":"e5f6a7","name":"upgrade deps","harness":"paseo:cursor","backend":"paseo","status":"idle","cwd":"/Users/ryan/code/mobile","age":7200,"last":"Done. 14 packages upgraded."},
-    {"id":"d-3","name":"flaky test hunt","harness":"direct:antigravity","backend":"direct","status":"exited","cwd":"/Users/ryan/code/api","age":86400,"last":"exit 0"}]})J");
+    {"id":"a1b2c3","name":"fix login redirect","harness":"paseo:claude","backend":"paseo","status":"waiting","cwd":"/Users/dev/code/webapp","age":340,"last":"Wants to run: npm test"},
+    {"id":"d-1","name":"refactor billing","harness":"direct:codex","backend":"direct","status":"working","cwd":"/Users/dev/code/api","age":1260,"last":"Editing src/billing/invoice.ts"},
+    {"id":"d-2","name":"write docs","harness":"direct:pi","backend":"direct","status":"working","cwd":"/Users/dev/code/docs","age":95,"last":"Reading README.md"},
+    {"id":"e5f6a7","name":"upgrade deps","harness":"paseo:cursor","backend":"paseo","status":"idle","cwd":"/Users/dev/code/mobile","age":7200,"last":"Done. 14 packages upgraded."},
+    {"id":"d-3","name":"flaky test hunt","harness":"direct:antigravity","backend":"direct","status":"exited","cwd":"/Users/dev/code/api","age":86400,"last":"exit 0"}]})J");
   store().applyAgents(d);
   deserializeJson(d, R"J({"harness":[
     {"id":"paseo:claude","name":"Claude Code","backend":"paseo","ok":true,"color":55018,"mode":"default","modes":[{"id":"plan","label":"Plan"},{"id":"default","label":"Always ask"},{"id":"acceptEdits","label":"Accept edits"},{"id":"bypassPermissions","label":"Bypass"}]},
@@ -164,21 +164,21 @@ static void seed() {
     {"id":"direct:antigravity","name":"Antigravity","backend":"direct","ok":true,"color":17023},
     {"id":"direct:gemini","name":"Gemini CLI","backend":"direct","ok":false,"color":36351}]})J");
   store().applyHarness(d);
-  deserializeJson(d, R"J({"projects":[{"path":"/Users/ryan/code/webapp","name":"webapp","branch":"main"},
-    {"path":"/Users/ryan/code/api","name":"api","branch":"feat/billing-v2"},{"path":"/Users/ryan/code/mobile","name":"mobile","branch":"develop"},
-    {"path":"/Users/ryan/code/docs","name":"docs","branch":"main"},{"path":"/Users/ryan","name":"~","branch":""}]})J");
+  deserializeJson(d, R"J({"projects":[{"path":"/Users/dev/code/webapp","name":"webapp","branch":"main"},
+    {"path":"/Users/dev/code/api","name":"api","branch":"feat/billing-v2"},{"path":"/Users/dev/code/mobile","name":"mobile","branch":"develop"},
+    {"path":"/Users/dev/code/docs","name":"docs","branch":"main"},{"path":"/Users/dev","name":"~","branch":""}]})J");
   store().applyProjects(d);
   store().addNotice({"done", "refactor billing", "Finished: 6 files changed, tests pass", "d-1", g_now - 60000});
   store().addNotice({"attn", "fix login redirect", "Wants to run: npm test", "a1b2c3", g_now - 20000});
   link_.replies["agent.tail"] = R"J({"lines":["> fix the login redirect loop on /account","","I'll start by finding where the redirect happens.","","Read src/auth/session.ts (142 lines)","Read src/routes/account.tsx (88 lines)","","The loop comes from useSession() returning null while loading,","so the guard redirects before the cookie is read. I'll add a","loading state to the guard.","","Edit src/routes/account.tsx  +6 -2","","Bash(npm test -- auth)","  Allow this command? [y/n]"]})J";
-  link_.replies["procs.list"] = R"J({"procs":[{"pid":4127,"name":"node","cpu":88.2,"mem":3.1,"user":"ryan"},{"pid":812,"name":"WindowServer","cpu":21.4,"mem":1.2,"user":"_windowserver"},
-    {"pid":33021,"name":"claude","cpu":12.9,"mem":2.4,"user":"ryan"},{"pid":3301,"name":"Google Chrome Helper (Renderer)","cpu":9.5,"mem":4.8,"user":"ryan"},
-    {"pid":2210,"name":"codex","cpu":6.1,"mem":1.0,"user":"ryan"},{"pid":101,"name":"kernel_task","cpu":4.2,"mem":0.6,"user":"root"},
-    {"pid":5512,"name":"thronectl","cpu":1.3,"mem":0.4,"user":"ryan"},{"pid":901,"name":"Spotlight","cpu":0.9,"mem":0.7,"user":"ryan"},{"pid":77,"name":"launchd","cpu":0.1,"mem":0.1,"user":"root"}]})J";
+  link_.replies["procs.list"] = R"J({"procs":[{"pid":4127,"name":"node","cpu":88.2,"mem":3.1,"user":"dev"},{"pid":812,"name":"WindowServer","cpu":21.4,"mem":1.2,"user":"_windowserver"},
+    {"pid":33021,"name":"claude","cpu":12.9,"mem":2.4,"user":"dev"},{"pid":3301,"name":"Google Chrome Helper (Renderer)","cpu":9.5,"mem":4.8,"user":"dev"},
+    {"pid":2210,"name":"codex","cpu":6.1,"mem":1.0,"user":"dev"},{"pid":101,"name":"kernel_task","cpu":4.2,"mem":0.6,"user":"root"},
+    {"pid":5512,"name":"thronectl","cpu":1.3,"mem":0.4,"user":"dev"},{"pid":901,"name":"Spotlight","cpu":0.9,"mem":0.7,"user":"dev"},{"pid":77,"name":"launchd","cpu":0.1,"mem":0.1,"user":"root"}]})J";
   link_.replies["term.open"] = R"J({"tid":1})J";
   Settings& s = settings();
   HostEntry h;
-  h.id = "9f2c1a"; h.name = "Ryan's MacBook Pro"; h.addr = "192.168.1.12"; h.os = "darwin";
+  h.id = "9f2c1a"; h.name = "Studio MacBook"; h.addr = "192.168.1.12"; h.os = "darwin";
   s.hosts.push_back(h);
   s.defaultHost = h.id;
   s.wifi.push_back({"HomeNet-5G", "x"});

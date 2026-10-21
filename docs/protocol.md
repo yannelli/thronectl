@@ -9,7 +9,7 @@ The device (Cardputer ADV) is the client. The host daemon (`thronectl daemon`) i
 - Each daemon replies to the sender with one JSON datagram:
 
 ```json
-{"t":"throne","v":1,"id":"9f2c1a0b4d5e6f70","name":"Ryan's MacBook","port":4787,"os":"darwin"}
+{"t":"throne","v":1,"id":"9f2c1a0b4d5e6f70","name":"Studio MacBook","port":4787,"os":"darwin"}
 ```
 
 `id` is the host ID (see Identity). The device also accepts a manual `host:port` entry.
@@ -40,7 +40,7 @@ The handshake uses a commit-reveal step, so a man in the middle cannot pick keys
 2. Host to device, `hello`:
 
 ```json
-{"t":"hello","v":1,"id":"<host id>","name":"Ryan's MacBook","pk":"<32B>","epk":"<32B>","n":"<hn, 16B>"}
+{"t":"hello","v":1,"id":"<host id>","name":"Studio MacBook","pk":"<32B>","epk":"<32B>","n":"<hn, 16B>"}
 ```
 
 3. Device to host, `reveal`:
@@ -86,7 +86,7 @@ If a frame does not decrypt, the receiver closes the connection.
 The first encrypted message from the host is `auth`.
 
 - Trusted device, and `known` was true: `{"t":"auth","state":"ok","host":Host}`.
-- Otherwise: `{"t":"auth","state":"pair","code":"482913"}`. The device shows the code. The host asks the user to compare the code and answer yes or no (`thronectl pair`, or the daemon terminal).
+- Otherwise: `{"t":"auth","state":"pair","code":"482913"}`. The device shows the SAS it computed itself, and stops if `code` differs from it. The host asks the user to compare the code and answer yes or no (`thronectl pair`, or the daemon terminal).
   - Yes: the host stores the device public key. It sends `{"t":"auth","state":"ok","host":Host}`. The device stores `{id, name, pk, addr, port}` in NVS.
   - No, or no answer in 120 s: `{"t":"auth","state":"denied"}`, then the host closes the connection.
 
@@ -95,8 +95,11 @@ The device sends no requests before `state:"ok"`.
 `Host`:
 
 ```json
-{"id":"9f2c...","name":"Ryan's MacBook","hostname":"rmbp","os":"darwin","arch":"arm64","user":"ryan","ver":"0.1.0","paseo":true}
+{"id":"9f2c...","name":"Studio MacBook","hostname":"studio","os":"darwin","arch":"arm64","user":"dev","ver":"0.1.0","paseo":true,
+ "tzOff":-240,"time":1761076800000}
 ```
+
+`tzOff` is the host time zone in minutes east of UTC. `time` is the host clock in unix ms. The device uses them until NTP answers, and when its time zone setting is "From host".
 
 ## Messages
 
@@ -139,6 +142,7 @@ Keepalive: the device sends `ping` every 10 s. Either side closes the connection
 | `agent.kill` | `{"id":"..."}` | `{}` (end the agent; Paseo agents are archived) |
 | `agent.tail` | `{"id":"...","n":40}` | `{"lines":["..."]}` |
 | `agent.last` | `{"id":"..."}` | `{"text":"..."}` (last assistant message) |
+| `agent.speak` | `{"id":"...","voice":""}` | `{"ms":4200}` (reads the last reply aloud on the device speaker) |
 | `agent.permit` | `{"id":"...","allow":true}` | `{}` |
 | `term.open` | `{"agent":"<id>"}` or `{"shell":true,"cwd":"~"}`, plus `"cols":40,"rows":15` | `{"tid":1}` |
 | `term.input` | `{"tid":1,"d":"ls\r"}` | `{}` |
@@ -169,7 +173,7 @@ Keepalive: the device sends `ping` every 10 s. Either side closes the connection
 - `net`: [rx, tx] in KiB/s.
 - `batt`: absent when the host has no battery.
 
-`Proc`: `{"pid":42,"name":"node","cpu":12.5,"mem":1.4,"user":"ryan"}`. `cpu` and `mem` are percent.
+`Proc`: `{"pid":42,"name":"node","cpu":12.5,"mem":1.4,"user":"dev"}`. `cpu` and `mem` are percent.
 
 `Harness`:
 
@@ -180,13 +184,13 @@ Keepalive: the device sends `ping` every 10 s. Either side closes the connection
 
 `backend` is `direct` (the daemon runs the CLI in a PTY) or `paseo` (the daemon uses the Paseo CLI). `color` is RGB565.
 
-`Project`: `{"path":"/Users/ryan/code/app","name":"app","branch":"main"}`.
+`Project`: `{"path":"/Users/dev/code/app","name":"app","branch":"main"}`.
 
 `Agent`:
 
 ```json
 {"id":"d-3","name":"fix login","harness":"direct:claude","backend":"direct","status":"working",
- "cwd":"/Users/ryan/code/app","age":125,"attn":false,"last":"Editing src/login.ts"}
+ "cwd":"/Users/dev/code/app","age":125,"attn":false,"last":"Editing src/login.ts"}
 ```
 
 `status` is one of `working`, `idle`, `waiting`, `exited`, `error`. `waiting` means the agent needs a permission answer. `age` is seconds since start. `last` is one short line of recent output.

@@ -1,9 +1,21 @@
 #include "link.h"
 #include <cerrno>
 #include <fcntl.h>
+#include "../core/settings.h"
+#ifdef ARDUINO
 #include <lwip/netdb.h>
 #include <lwip/sockets.h>
-#include "../core/settings.h"
+#else
+// Host build for tools/linkcheck: same BSD socket API.
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <unistd.h>
+static uint32_t millis() { return nowMs(); }
+#endif
 
 static constexpr uint8_t KIND_JSON = 1, KIND_MIC = 2, KIND_SPK = 3;
 static constexpr size_t MAX_FRAME = 65536 + 17;
@@ -212,6 +224,7 @@ void Link::handleHostHello(JsonDocument& doc) {
 void Link::handleAuth(JsonDocument& doc) {
   const char* state = doc["state"] | "";
   if (!strcmp(state, "pair")) {
+    if (strcmp(doc["code"] | "", keys_.sas) != 0) return fail("Pairing codes differ. Update the firmware or the daemon.");
     code_ = keys_.sas;
     st_ = LinkState::Pairing;
     stateAt_ = millis();

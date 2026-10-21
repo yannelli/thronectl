@@ -104,6 +104,7 @@ void App::onLinkState(LinkState st) {
   Services& s = svc();
   if (st == LinkState::Ready) {
     backoff_ = 2000;
+    manualOffline_ = false;
     const HostInfo& h = s.link->host();
     if (settings().tz == 0 && h.hasTz) {
       char tz[40];
@@ -153,6 +154,7 @@ void App::refreshProjects(bool force, std::function<void()> done) {
 void App::speakAgent(const std::string& id) {
   JsonDocument p;
   p["id"] = id.c_str();
+  p["voice"] = settings().ttsVoice.c_str();
   svc().link->call("agent.speak", p, [](bool ok, JsonVariantConst, const char* err) {
     if (!ok) ui().toast("error", "Read aloud failed", err ? err : "");
   }, 60000);
@@ -181,6 +183,7 @@ void App::handleNotify(JsonVariantConst d) {
     else if (n.kind == "attn" && s.speakReplies == 2) {
       JsonDocument p;
       p["text"] = (n.title + " needs your approval.").c_str();
+      p["voice"] = settings().ttsVoice.c_str();
       svc().link->call("tts.say", p, [](bool, JsonVariantConst, const char*) {});
     }
   }
@@ -191,6 +194,7 @@ void App::onLinkEvent(const char* ev, JsonVariantConst d) {
   else if (!strcmp(ev, "agents")) store().applyAgents(d);
   else if (!strcmp(ev, "notify")) handleNotify(d);
   else if (!strcmp(ev, "term") || !strcmp(ev, "term_exit")) {
+    termAt_ = nowMs();
     if (termSink) termSink(ev, d);
   } else if (!strcmp(ev, "tts")) {
     const char* state = d["state"] | "";
@@ -222,6 +226,14 @@ void App::updateLed(uint32_t now) {
     }
   }
   svc().sys->setLed(color, screenOff_ && level ? level / 2 : level);
+}
+
+uint32_t App::frameInterval(uint32_t now) const {
+  if (now - lastActivity_ < 3000 || now - termAt_ < 1000 || voice.active() || ui().overlay) return 33;
+  LinkState st = svc().link->state();
+  bool busy = st == LinkState::Connecting || st == LinkState::Handshake || st == LinkState::Pairing;
+  if (busy || store().countStatus("working") || store().countStatus("waiting") || now < ledFlashUntil_) return 80;
+  return 250;
 }
 
 void App::loop(uint32_t now) {

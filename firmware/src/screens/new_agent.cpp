@@ -27,7 +27,7 @@ class NewAgent : public Screen {
     app().refreshHarness(false, guard([this] {
       app().refreshProjects(false, guard([this] {
         loading_ = false;
-        enter(HARNESS);
+        if (!quickStart()) enter(HARNESS);
       }));
     }));
   }
@@ -113,6 +113,24 @@ class NewAgent : public Screen {
         if (h->modes[i].id == want) list_.sel = i;
     }
     list_.clamp();
+  }
+
+  /** A spoken prompt reuses the last harness, folder and mode, so it lands on the prompt step. */
+  bool quickStart() {
+    Settings& st = settings();
+    if (prompt_.text.empty() || st.lastProject.empty()) return false;
+    auto& hs = store().harness;
+    for (int i = 0; i < (int)hs.size(); i++) {
+      if (hs[i].id != st.lastHarness || !hs[i].ok) continue;
+      hIdx_ = i;
+      cwd_ = st.lastProject;
+      mode_ = hs[i].mode;
+      for (auto& m : hs[i].modes)
+        if (m.id == st.lastMode) mode_ = m.id;
+      step_ = PROMPT;
+      return true;
+    }
+    return false;
   }
 
   void back() {

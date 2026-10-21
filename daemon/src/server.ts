@@ -48,6 +48,7 @@ export class Daemon {
     return {
       id: this.identity.id, name: this.cfg.name, hostname: hostname(), os: platform(), arch: arch(),
       user: userInfo().username, ver: VERSION, paseo: this.agents.paseo.available(),
+      tzOff: -new Date().getTimezoneOffset(), time: Date.now(),
     };
   }
 
