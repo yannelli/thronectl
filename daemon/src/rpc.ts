@@ -4,7 +4,8 @@ import { logger } from "./log.js";
 import { expandHome } from "./paths.js";
 import { killProc, listProcs } from "./procs.js";
 import { listProjects } from "./projects.js";
-import { KIND_MIC, KIND_SPK, type DevicePeer, type SecureChannel } from "./session.js";
+import type { OtaStore } from "./ota.js";
+import { KIND_MIC, KIND_OTA, KIND_SPK, type DevicePeer, type SecureChannel } from "./session.js";
 import type { Stats } from "./stats.js";
 import { PtyTerm, TermView, type TermUpdate } from "./terminal.js";
 import { transcribe } from "./voice/stt.js";
@@ -27,6 +28,7 @@ export interface DaemonContext {
   latestStats(): Stats | undefined;
   recentCwds(): string[];
   addRecentCwd(cwd: string): void;
+  ota: OtaStore;
 }
 
 type Params = Record<string, unknown>;
@@ -120,6 +122,22 @@ export class DeviceSession {
         const text = await a.last(str(p, "id"));
         if (!speakable(text, 10)) throw new Error("no reply to read yet");
         return { ms: await this.say(text, str(p, "voice", false)) };
+      },
+      // The data goes out as one KIND_OTA frame (u32be offset, bytes) just before this reply.
+      "ota.read": (p) => {
+        const off = num(p, "off", -1);
+        const chunk = this.ctx.ota.read(this.device.id, off, clamp(num(p, "n", 8192), 1, 65536));
+        const head = Buffer.alloc(4);
+        head.writeUInt32BE(off);
+        if (this.ch.closed) throw new Error("link closed");
+        this.ch.sendRaw(KIND_OTA, Buffer.concat([head, chunk]));
+        return { n: chunk.length };
+      },
+      "ota.done": (p) => {
+        const ok = p.ok === true;
+        this.ctx.ota.finish(this.device.id, ok, str(p, "err", false), str(p, "dest", false));
+        log.info(`"${this.device.name}" firmware update ${ok ? `done (${str(p, "dest", false) || "flash"})` : `failed: ${str(p, "err", false)}`}`);
+        return {};
       },
       "agent.permit": async (p) => { await a.permit(str(p, "id"), p.allow === true); return {}; },
       "term.open": (p) => this.openTerm(p),

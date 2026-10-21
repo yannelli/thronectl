@@ -15,16 +15,19 @@ import { configDir, paths, VERSION } from "./paths.js";
 import { Daemon } from "./server.js";
 import { installService, uninstallService } from "./service.js";
 import { runSim } from "./sim-repl.js";
+import { cmdFlash, cmdUpdate } from "./update.js";
 import { describeStt } from "./voice/stt.js";
 import { describeTts } from "./voice/tts.js";
 
 const HELP = `thronectl ${VERSION}: command your coding agents from a Cardputer
 
-Usage: thronectl <command>
+Usage: thronectl <command>   (or the short alias: throne <command>)
 
   daemon             Run the host daemon in the foreground
   install            Run the daemon at login (launchd on macOS, systemd on Linux)
   uninstall          Remove the login service
+  update [--no-firmware] [--yes]   Pull, rebuild and restart the daemon, then offer new firmware to devices
+  flash [file] [--device <name>] [--yes]   Send firmware to connected devices (default: latest release)
   pair               Approve or deny devices that want to pair (y/n)
   devices            List paired devices
   devices rm <id>    Forget a paired device (ID prefix or name)
@@ -173,6 +176,8 @@ async function main(): Promise<void> {
     case "config": return cmdConfig(args);
     case "install": adoptLoginShellPath(); return console.log(installService());
     case "uninstall": return console.log(uninstallService());
+    case "update": case "upgrade": return cmdUpdate(args);
+    case "flash": return cmdFlash(args);
     case "notify": {
       const kind = flag(args, "--kind") ?? "info";
       const r = await controlRequest<{ sent: number }>("notify", { title: args[0] ?? "thronectl", body: args.slice(1).join(" "), kind });

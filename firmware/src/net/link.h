@@ -12,6 +12,8 @@ class Link : public LinkApi {
   std::function<std::string()> deviceName;
   std::function<void(const char* ev, JsonVariantConst d)> onEvent;
   std::function<void(const uint8_t* pcm, size_t bytes)> onSpeaker;
+  /** Firmware chunk: u32 big-endian offset, then the bytes. */
+  std::function<void(const uint8_t* data, size_t len)> onOta;
 
   LinkState state() const override { return st_; }
   const std::string& error() const override { return err_; }

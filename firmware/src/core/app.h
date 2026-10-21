@@ -14,6 +14,7 @@ class App {
   void onPtt(bool down);
   void onLinkEvent(const char* ev, JsonVariantConst d);
   void onSpeaker(const uint8_t* pcm, size_t bytes);
+  void onOtaData(const uint8_t* data, size_t len);
 
   void activity();
   bool screenOn() const { return !screenOff_; }
@@ -36,6 +37,7 @@ class App {
  private:
   void onLinkState(LinkState s);
   void handleNotify(JsonVariantConst d);
+  void offerUpdate(JsonVariantConst d);
   void updateLed(uint32_t now);
 
   LinkState lastState_ = LinkState::Offline;

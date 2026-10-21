@@ -80,6 +80,19 @@ export function installService(): string {
   throw new Error(`service install is not supported on ${platform()}`);
 }
 
+/** Restarts the login service so it runs the new build. Undefined when no service is installed. */
+export function restartService(): string | undefined {
+  if (platform() === "darwin" && existsSync(plistPath())) {
+    execFileSync("launchctl", ["kickstart", "-k", `gui/${userInfo().uid}/${LABEL}`]);
+    return "Restarted the launchd agent.";
+  }
+  if (platform() === "linux" && existsSync(unitPath())) {
+    execFileSync("systemctl", ["--user", "restart", "thronectl.service"]);
+    return "Restarted the systemd service.";
+  }
+  return undefined;
+}
+
 export function uninstallService(): string {
   if (platform() === "darwin") {
     try { execFileSync("launchctl", ["bootout", `gui/${userInfo().uid}/${LABEL}`], { stdio: "ignore" }); } catch { /* not loaded */ }

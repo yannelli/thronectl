@@ -11,6 +11,7 @@ static KeyboardHal keyboard;
 static AudioHal audio;
 static SystemHal sys;
 static NvsStore nvs;
+static OtaHal ota;
 static Net net;
 static Link hostLink;
 static Canvas* canvas = nullptr;
@@ -49,6 +50,7 @@ void setup() {
   hostLink.deviceName = deviceName;
   hostLink.onEvent = [](const char* ev, JsonVariantConst d) { app().onLinkEvent(ev, d); };
   hostLink.onSpeaker = [](const uint8_t* pcm, size_t n) { app().onSpeaker(pcm, n); };
+  hostLink.onOta = [](const uint8_t* data, size_t n) { app().onOtaData(data, n); };
 
   sys.begin();
   audio.begin();
@@ -60,6 +62,7 @@ void setup() {
   s.net = &net;
   s.audio = &audio;
   s.sys = &sys;
+  s.ota = &ota;
   app().begin();
 }
 

@@ -164,6 +164,7 @@ std::vector<Item> category(int idx) {
       break;
     default:
       v.push_back(action("About this device", [] { ui().push(makeAbout()); }));
+      v.push_back(action("Update from SD card", [] { ui().push(makeSdUpdate()); }));
       v.push_back(action("Reboot", [] { danger("Reboot?", "Settings are saved first.", [] { settingsSave(); svc().sys->reboot(); }); }));
       v.push_back(action("Factory reset", [] {
         danger("Factory reset?", "Erases Wi-Fi, paired hosts, keys and all settings.", [] { svc().sys->factoryReset(); });
@@ -176,7 +177,7 @@ std::vector<Item> category(int idx) {
 const char* const CATS[] = {"Display", "Sound", "Voice", "LED", "Agents", "Network", "Keyboard & power", "Device"};
 const char* const CAT_SUB[] = {"theme, brightness, sleep", "volume, clicks, alerts", "talk, read aloud, mic",
                                "status light", "launch, confirm, stats", "Wi-Fi, hosts, time zone",
-                               "repeat, CPU, power", "about, reboot, reset"};
+                               "repeat, CPU, power", "about, update, reset"};
 constexpr int CAT_COUNT = 8;
 
 class Category : public Screen {

@@ -29,7 +29,7 @@ git clone https://github.com/yannelli/thronectl.git
 cd thronectl/daemon
 npm install
 npm run build
-npm link            # puts `thronectl` on your PATH
+npm link            # puts `thronectl` and its short alias `throne` on your PATH
 thronectl doctor    # shows which agent CLIs, Paseo and voice providers it found
 thronectl install   # start at login (launchd on macOS, systemd --user on Linux)
 ```
@@ -46,7 +46,7 @@ Get `thronectl-cardputer-adv-v<version>.bin` from the [releases](https://github.
 
   ```sh
   pip install esptool
-  esptool.py --chip esp32s3 --baud 1500000 write_flash 0x0 thronectl-cardputer-adv-v0.1.2.bin
+  esptool.py --chip esp32s3 --baud 1500000 write_flash 0x0 thronectl-cardputer-adv-v0.2.0.bin
   ```
 
 - **From source:** `cd firmware && pio run -t upload`
@@ -67,6 +67,29 @@ If the port does not show up, hold **G0** while you plug in USB. This puts the c
 4. The device remembers the host and reconnects by itself. The host remembers the device. Later connections skip pairing.
 
 To list or remove paired devices, use `thronectl devices` and `thronectl devices rm <name|id>`.
+
+## Updating
+
+```sh
+throne update
+```
+
+This updates the git checkout and rebuilds the daemon. Then it restarts the login service and offers new firmware to each connected device. `throne` is the short alias for `thronectl`. Add `--yes` to skip the questions. Add `--no-firmware` to update only the daemon.
+
+To send firmware only, run `throne flash`. It picks the newest image from the latest GitHub release (needs the GitHub CLI, `gh`) or from `firmware/dist`. You can also give a file and a device: `throne flash path/to/image.bin --device <name>`.
+
+Confirm the update on the device. What happens next depends on how thronectl was installed:
+
+- **Standalone** (flashed at `0x0`): the device writes the new app to its spare slot and checks it before it restarts. If the check fails, the old firmware stays.
+- **Launcher:** Launcher owns the app slots, so the device saves `thronectl-cardputer-adv-v<version>.bin` to the SD card. Reboot, press any key on the Launcher screen, open SD, pick the file and choose Install.
+
+Without a host, copy the `.bin` to the SD card. Under Launcher, install it from Launcher. On a standalone install, open Settings > Device > Update from SD card.
+
+Firmware older than 0.2.0 cannot update over Wi-Fi, so install 0.2.0 once by hand (step 2 above). A daemon older than 0.2.0 has no `update` command. Upgrade it once by hand:
+
+```sh
+cd thronectl && git pull && cd daemon && npm install && npm run build && npm link
+```
 
 ## Using it
 
@@ -145,7 +168,7 @@ Two font sizes: 40x15 (default) and 60x20 (Settings > Display > Terminal font). 
 | Agents | Confirm before ending, open terminal on launch, show exited agents, stats refresh, default harness, clear notifications |
 | Network | Wi-Fi networks, hosts and pairing, auto-connect, device name, time zone (or from host), disconnect, reconnect |
 | Keyboard and power | Key repeat delay and rate, CPU speed, power off |
-| Device | About (firmware, heap, battery, IP, MAC, host info, latency), reboot, factory reset |
+| Device | About (firmware, install mode, heap, battery, IP, MAC, host info, latency), update from SD card, reboot, factory reset |
 
 ## Agents and harnesses
 
@@ -246,8 +269,8 @@ docs/       Protocol spec and screenshots
 - Simulated device REPL: `thronectl sim`.
 - Firmware build: `cd firmware && pio run`. To make the release image: `tools/merge.sh`.
 - Screen snapshots without hardware: `firmware/tools/snapshot/build.sh`, then run the binary it prints with an output folder. It renders every screen to PNG with mock data.
-- Key fuzzer: `firmware/tools/keyfuzz/run.sh [steps] [seed]` runs the real app loop with random keys, link and Wi-Fi changes under AddressSanitizer. It models the device clock (handlers run after the loop reads `millis()`) and fails if a key press leaves the screen off.
-- Interop check: `firmware/tools/linkcheck/run.sh` builds the firmware link and crypto code for the host. It pairs with a throwaway daemon and runs the RPC methods. It needs mbedTLS 2.28 (`libmbedtls-dev`, or set `MBEDTLS_ROOT`).
+- Key fuzzer: `firmware/tools/keyfuzz/run.sh [steps] [seed]` runs the real app loop under AddressSanitizer. It sends random keys, link and Wi-Fi changes, and firmware offers and chunks. It models the device clock (handlers run after the loop reads `millis()`) and fails if a key press leaves the screen off.
+- Interop check: `firmware/tools/linkcheck/run.sh` builds the firmware link and crypto code for the host. It pairs with a throwaway daemon, runs the RPC methods and pushes a test firmware image with `ota.push`. It needs mbedTLS 2.28 (`libmbedtls-dev`, or set `MBEDTLS_ROOT`).
 
 ## Hardware notes
 

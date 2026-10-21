@@ -17,7 +17,7 @@
 static uint32_t millis() { return nowMs(); }
 #endif
 
-static constexpr uint8_t KIND_JSON = 1, KIND_MIC = 2, KIND_SPK = 3;
+static constexpr uint8_t KIND_JSON = 1, KIND_MIC = 2, KIND_SPK = 3, KIND_OTA = 4;
 static constexpr size_t MAX_FRAME = 65536 + 17;
 static constexpr size_t TX_LIMIT = 48 * 1024;
 
@@ -192,6 +192,8 @@ void Link::handleFrame(const uint8_t* data, size_t len) {
     handleMessage(doc);
   } else if (kind == KIND_SPK && onSpeaker && st_ == LinkState::Ready) {
     onSpeaker(plain.data() + 1, plain.size() - 1);
+  } else if (kind == KIND_OTA && onOta && st_ == LinkState::Ready) {
+    onOta(plain.data() + 1, plain.size() - 1);
   }
 }
 

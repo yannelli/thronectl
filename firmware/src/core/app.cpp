@@ -5,6 +5,7 @@
 #include "store.h"
 #include "theme.h"
 #include "ui.h"
+#include "updater.h"
 
 static App g_app;
 App& app() { return g_app; }
@@ -193,6 +194,7 @@ void App::onLinkEvent(const char* ev, JsonVariantConst d) {
   if (!strcmp(ev, "stats")) store().applyStats(d);
   else if (!strcmp(ev, "agents")) store().applyAgents(d);
   else if (!strcmp(ev, "notify")) handleNotify(d);
+  else if (!strcmp(ev, "ota.offer")) offerUpdate(d);
   else if (!strcmp(ev, "term") || !strcmp(ev, "term_exit")) {
     termAt_ = nowMs();
     if (termSink) termSink(ev, d);
@@ -206,6 +208,29 @@ void App::onLinkEvent(const char* ev, JsonVariantConst d) {
 
 void App::onSpeaker(const uint8_t* pcm, size_t bytes) {
   if (!voice.active()) svc().audio->speakerFeed(pcm, bytes);
+}
+
+void App::onOtaData(const uint8_t* data, size_t len) { updater().onData(data, len); }
+
+void App::offerUpdate(JsonVariantConst d) {
+  OtaApi* ota = svc().ota;
+  if (!ota || updater().active()) return Updater::reply(false, "an update is already running on the device", "");
+  bool toSd = ota->underLauncher();
+  if (toSd && !ota->sdReady()) {
+    ui().toast("error", "Update needs an SD card", "Launcher installs apps from the card.");
+    return Updater::reply(false, "no SD card in the device (Launcher installs apps from SD)", "sd");
+  }
+  std::string ver = d["ver"] | "", sha = d["sha256"] | "", from = d["from"] | "the host";
+  uint32_t size = d["size"] | 0u;
+  std::string what = (ver.empty() ? std::string("New firmware") : "Version " + ver) + " from " + from + ". ";
+  activity();
+  svc().audio->chime(CH_ATTN);
+  ui().confirm("Update firmware?", what + (toSd ? "Saves to SD for Launcher to install." : "Installs, then restarts."),
+               [ver, size, sha, toSd](bool yes) {
+                 if (!yes) return Updater::reply(false, "declined on the device", toSd ? "sd" : "flash");
+                 updater().startLink(ver, size, sha, toSd);
+                 ui().push(makeUpdate());
+               });
 }
 
 void App::updateLed(uint32_t now) {
@@ -230,6 +255,7 @@ void App::updateLed(uint32_t now) {
 
 uint32_t App::frameInterval(uint32_t now) const {
   if (elapsedMs(now, lastActivity_) < 3000 || elapsedMs(now, termAt_) < 1000 || voice.active() || ui().overlay) return 33;
+  if (updater().active()) return 80;
   LinkState st = svc().link->state();
   bool busy = st == LinkState::Connecting || st == LinkState::Handshake || st == LinkState::Pairing;
   if (busy || store().countStatus("working") || store().countStatus("waiting") || now < ledFlashUntil_) return 80;
@@ -250,9 +276,14 @@ void App::loop(uint32_t now) {
     }
   }
   voice.update(now);
+  updater().update(now);
+  if (updater().restartDue(now)) {
+    settingsSave();
+    sv.sys->reboot();
+  }
   uint32_t quiet = elapsedMs(now, lastActivity_);
   uint32_t dimMs = DIM_MS[s.dimAfter % 6], offMs = OFF_MS[s.offAfter % 6];
-  if (voice.active() || sv.audio->speaking()) lastActivity_ = now;
+  if (voice.active() || sv.audio->speaking() || updater().active()) lastActivity_ = now;
   else if (!screenOff_ && offMs && quiet > offMs) {
     screenOff_ = true;
     applyDisplay();

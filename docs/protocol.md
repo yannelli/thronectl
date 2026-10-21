@@ -78,6 +78,7 @@ sas  = u32be(SHA-256("thronectl-sas" || th)[0..4]) mod 1000000   (6 digits, zero
 | `0x01` | UTF-8 JSON message |
 | `0x02` | Microphone audio, device to host: PCM 16-bit LE mono |
 | `0x03` | Speaker audio, host to device: PCM 16-bit LE mono |
+| `0x04` | Firmware chunk, host to device: 4-byte big-endian offset, then the image bytes |
 
 If a frame does not decrypt, the receiver closes the connection.
 
@@ -152,6 +153,8 @@ Keepalive: the device sends `ping` every 10 s. Either side closes the connection
 | `voice.cancel` | `{}` | `{}` |
 | `tts.say` | `{"text":"...","voice":""}` | `{}` |
 | `tts.stop` | `{}` | `{}` |
+| `ota.read` | `{"off":0,"n":8192}` | `{"n":8192}` (the bytes arrive first, as one kind `0x04` frame) |
+| `ota.done` | `{"ok":true,"err":"","dest":"flash"\|"sd"}` | `{}` |
 
 ## Types
 
@@ -205,6 +208,7 @@ Keepalive: the device sends `ping` every 10 s. Either side closes the connection
 | `term` | Terminal update (see below) |
 | `term_exit` | `{"tid":1,"code":0}` |
 | `tts` | `{"state":"start","rate":16000}` or `{"state":"end"}` |
+| `ota.offer` | `{"ver":"0.2.0","size":1182944,"sha256":"<hex>","from":"<host name>"}` |
 
 ## Terminal updates
 
@@ -227,3 +231,15 @@ The host runs the terminal emulator. The device draws a grid of cells.
 
 - Microphone (kind `0x02`): the device sends 16 kHz PCM between `voice.start` and `voice.stop`, in chunks of 100 ms or less.
 - Speaker (kind `0x03`): the host sends PCM at the rate given in the `tts` start event, in chunks of 100 ms, at real time plus 400 ms lead.
+
+## Firmware updates
+
+`thronectl flash` (and `thronectl update`) send an app image to connected devices. A merged flash image is cut at its first app partition, so the device always gets an app image.
+
+1. The host sends the `ota.offer` event. The device asks the user. If the user declines, the device calls `ota.done` with `ok:false`.
+2. The device calls `ota.read` for each chunk, in order, with up to two calls in flight. A chunk is 16 KB or less.
+3. When all bytes are in, the device checks the SHA-256, then calls `ota.done`.
+4. A standalone install writes the spare app slot and restarts into it (`dest:"flash"`).
+5. Under Launcher (an app partition of subtype `test` exists), the device writes `/thronectl-cardputer-adv-v<ver>.bin` on the SD card (`dest:"sd"`). Launcher installs it from there.
+
+Firmware before 0.2.0 ignores `ota.offer`.

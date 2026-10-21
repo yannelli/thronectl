@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <thread>
 #include "core/settings.h"
+#include "core/updater.h"
 #include "net/crypto.h"
 #include "net/link.h"
 
@@ -15,7 +16,41 @@ uint32_t nowMs() {
 static Services g_svc;
 Services& svc() { return g_svc; }
 
+// Collects the image in memory; finish() checks the SHA-256 the host offered.
+class CheckOta : public OtaApi {
+ public:
+  std::vector<uint8_t> got;
+  std::string sha, err;
+  bool underLauncher() const override { return false; }
+  bool sdReady() override { return false; }
+  std::vector<SdImage> sdImages() override { return {}; }
+  bool begin(uint32_t size, const std::string& s, const std::string&) override {
+    got.clear();
+    got.reserve(size);
+    sha = s;
+    return true;
+  }
+  bool write(const uint8_t* d, size_t n) override {
+    got.insert(got.end(), d, d + n);
+    return true;
+  }
+  bool finish() override {
+    uint8_t h[32];
+    tcrypto::sha256(got.data(), got.size(), h);
+    if (toHex(h, 32) == sha) return true;
+    err = "sha256 mismatch";
+    return false;
+  }
+  void abort() override {}
+  const std::string& error() const override { return err; }
+  uint32_t openSd(const std::string&) override { return 0; }
+  int readSd(uint8_t*, size_t) override { return -1; }
+  void closeSd() override {}
+};
+
 static Link link_;
+static CheckOta ota_;
+static int offers = 0;
 static int failures = 0;
 static std::string termText;
 static int eventsSeen = 0;
@@ -72,9 +107,32 @@ static void testRfcVector() {
   CHECK(!tcrypto::open(key, 7, sealed, 28, plain), "aes-gcm rejects tampering");
 }
 
+// run.sh pushes argv[3] with `ota.push` once the ready file exists, like `thronectl flash`.
+static void testOta(const char* image) {
+  FILE* f = fopen(image, "rb");
+  std::vector<uint8_t> file;
+  if (f) {
+    uint8_t b[4096];
+    for (size_t n; (n = fread(b, 1, sizeof b, f)) > 0;) file.insert(file.end(), b, b + n);
+    fclose(f);
+  }
+  CHECK(file.size() > 0x10000, "test image readable");
+  if (file.size() <= 0x10000) return;
+  if (const char* ready = getenv("LINKCHECK_OTA_READY")) fclose(fopen(ready, "w"));
+  pump(10000, [] { return offers > 0; });
+  CHECK(offers == 1, "host offers firmware (ota.offer)");
+  uint32_t t0 = nowMs();
+  pump(20000, [] { return !updater().active(); });
+  CHECK(updater().phase() == UpdatePhase::Done, ("firmware transfer completes: " + updater().error()).c_str());
+  std::vector<uint8_t> app(file.begin() + 0x10000, file.end());
+  CHECK(ota_.got == app, "device received exactly the app part of the merged image");
+  printf("     %u bytes in %u ms\n", (unsigned)ota_.got.size(), (unsigned)(nowMs() - t0));
+  pump(500);
+}
+
 int main(int argc, char** argv) {
   if (argc < 3) {
-    fprintf(stderr, "usage: linkcheck <host> <port>\n");
+    fprintf(stderr, "usage: linkcheck <host> <port> [firmware.bin]\n");
     return 2;
   }
   const char* host = argv[1];
@@ -86,8 +144,15 @@ int main(int argc, char** argv) {
   tcrypto::keypair(priv, pub);
   link_.begin(priv, pub);
   link_.deviceName = [] { return std::string("linkcheck"); };
+  svc().link = &link_;
+  svc().ota = &ota_;
+  link_.onOta = [](const uint8_t* d, size_t n) { updater().onData(d, n); };
   link_.onEvent = [](const char* ev, JsonVariantConst d) {
     eventsSeen++;
+    if (!strcmp(ev, "ota.offer")) {
+      offers++;
+      updater().startLink(d["ver"] | "", d["size"] | 0u, d["sha256"] | "", false);
+    }
     if (!strcmp(ev, "term"))
       for (JsonArrayConst row : d["rows"].as<JsonArrayConst>())
         for (JsonArrayConst span : row[1].as<JsonArrayConst>()) termText += span[3].as<const char*>() ? span[3].as<const char*>() : "";
@@ -148,6 +213,7 @@ int main(int argc, char** argv) {
   pump(10000, [] { return link_.state() == LinkState::Ready || link_.state() == LinkState::Failed || link_.state() == LinkState::Pairing; });
   CHECK(link_.state() == LinkState::Ready, "reconnect as a known device skips pairing");
   CHECK(rpc("ping", "{}").ok, "ping after reconnect");
+  if (argc > 3) testOta(argv[3]);
   link_.disconnect();
   printf("%s: %d failure(s)\n", failures ? "FAILED" : "PASSED", failures);
   return failures ? 1 : 0;

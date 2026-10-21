@@ -146,6 +146,7 @@ class About : public Screen {
     std::vector<std::pair<std::string, std::string>> rows;
     char b[64];
     rows.push_back({"Firmware", "thronectl " FW_VERSION});
+    rows.push_back({"Installed", s.ota && s.ota->underLauncher() ? "under Launcher (updates via SD)" : "standalone"});
     rows.push_back({"Device ID", s.sys->deviceId()});
     rows.push_back({"Chip", s.sys->chipInfo()});
     snprintf(b, sizeof b, "%u KB free, %u KB low", (unsigned)(s.sys->freeHeap() / 1024), (unsigned)(s.sys->minFreeHeap() / 1024));

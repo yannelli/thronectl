@@ -9,6 +9,7 @@
 #include "core/store.h"
 #include "core/theme.h"
 #include "core/ui.h"
+#include "core/updater.h"
 #include "screens/screens.h"
 
 // main.cpp reads millis() once per loop; handlers that call nowMs() run later (I2C, crypto).
@@ -71,6 +72,7 @@ class FuzzLink : public LinkApi {
     if (s == "harness.list") return R"({"harness":[{"id":"direct:pi","name":"Pi","backend":"direct","ok":true,"color":1}]})";
     if (s == "projects.list") return R"({"projects":[{"path":"/x","name":"x","branch":"main"}]})";
     if (s == "agent.last") return R"({"text":"hello there, this is the reply"})";
+    if (s == "ota.read") return R"({"n":8192})";
     return "{}";
   }
 };
@@ -149,11 +151,48 @@ class FuzzSys : public SystemApi {
   void powerOff() override {}
 };
 
+class FuzzOta : public OtaApi {
+ public:
+  std::string err = "fuzz error";
+  bool underLauncher() const override { return launcher; }
+  bool sdReady() override { return pick(3); }
+  std::vector<SdImage> sdImages() override {
+    std::vector<SdImage> v;
+    for (int i = pick(4); i > 0; i--) v.push_back({"/thronectl/fw" + std::to_string(i) + ".bin", "fw" + std::to_string(i) + ".bin", (uint32_t)pick(2000000)});
+    return v;
+  }
+  bool begin(uint32_t, const std::string&, const std::string&) override { return pick(10); }
+  bool write(const uint8_t*, size_t) override { return pick(100); }
+  bool finish() override { return pick(4); }
+  void abort() override {}
+  const std::string& error() const override { return err; }
+  uint32_t openSd(const std::string&) override { return pick(3) ? 1 + pick(60000) : 0; }
+  int readSd(uint8_t* buf, size_t n) override {
+    if (!pick(200)) return -1;
+    memset(buf, 0xE9, n);
+    return (int)n;
+  }
+  void closeSd() override {}
+  bool launcher = false;
+};
+
 static FuzzStore store_;
 static FuzzLink link_;
 static FuzzNet net_;
 static FuzzAudio audio_;
 static FuzzSys sys_;
+static FuzzOta ota_;
+
+// A KIND_OTA frame body: the next offset the updater expects, or a random one.
+static void otaFrame() {
+  static uint8_t buf[4 + 8192];
+  uint32_t at = pick(5) ? updater().written() : (uint32_t)rng();
+  size_t n = 1 + pick(8192), left = updater().size() - updater().written();
+  if (pick(4) && left && n > left) n = left;
+  buf[0] = at >> 24; buf[1] = at >> 16; buf[2] = at >> 8; buf[3] = at;
+  memset(buf + 4, 0xE9, n);
+  app().onOtaData(buf, 4 + n);
+}
 
 static KeyEvent randomKey() {
   static const uint16_t special[] = {K_UP, K_DOWN, K_LEFT, K_RIGHT, K_ENTER, K_BKSP, K_DEL, K_ESC, K_TAB, K_F1, K_F5, K_F12};
@@ -177,7 +216,7 @@ static void linkEvent(const char* ev, const char* json) {
 }
 
 static void randomWorld() {
-  switch (pick(12)) {
+  switch (pick(15)) {
     case 0: link_.st = (LinkState)pick(6); break;
     case 1: net_.st = (WifiState)pick(4); break;
     case 2: linkEvent("stats", R"({"cpu":37,"cores":[30,45],"load":[1,2,3],"mem":[2000,8000],"disk":[10,100],"net":[1,2],"up":5})"); break;
@@ -187,6 +226,9 @@ static void randomWorld() {
     case 6: linkEvent("term", R"({"tid":1,"full":true,"cx":2,"cy":1,"cv":true,"rows":[[0,[[-1,-1,0,"$ ls ╭─╮ ⣿"]]],[30,[[-1,-1,0,"out of range row"]]]]})"); break;
     case 7: linkEvent("term_exit", R"({"tid":1,"code":0})"); break;
     case 8: link_.flush(); break;
+    case 9: linkEvent("ota.offer", pick(2) ? R"({"ver":"9.9.9","size":3000,"sha256":"ab","from":"host"})" : R"({"size":0})"); break;
+    case 10: case 11: otaFrame(); break;
+    case 12: ota_.launcher = pick(2); break;
     default: break;
   }
 }
@@ -203,8 +245,11 @@ int main(int argc, char** argv) {
   svc().net = &net_;
   svc().audio = &audio_;
   svc().sys = &sys_;
+  svc().ota = &ota_;
   app().begin();
   uint32_t lastFrame = 0;
+  UpdatePhase lastPhase = UpdatePhase::Idle;
+  long phases[4] = {0};
   for (long i = 0; i < steps; i++) {
     g_now += 1 + pick(40);
     uint32_t now = g_now;
@@ -226,8 +271,9 @@ int main(int argc, char** argv) {
       lastFrame = now;
       ui().render(c);
     }
+    if (updater().phase() != lastPhase) phases[(int)(lastPhase = updater().phase())]++;
     g_late = 0;
   }
-  printf("keyfuzz: %ld steps, no memory errors\n", steps);
+  printf("keyfuzz: %ld steps, no memory errors (updates: %ld started, %ld done, %ld failed)\n", steps, phases[1], phases[2], phases[3]);
   return 0;
 }

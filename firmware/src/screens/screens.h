@@ -17,5 +17,9 @@ Screen* makeSettings();
 Screen* makeNotices();
 Screen* makeTextView(const std::string& title, const std::string& text);
 Screen* makeAbout();
+/** Progress of the running firmware update (see core/updater.h). */
+Screen* makeUpdate();
+/** Picks a firmware image on the SD card. Under Launcher it explains the Launcher install instead. */
+Screen* makeSdUpdate();
 /** Destination picker shared by the home screen and the Opt+Enter shortcut. */
 void openLauncher();

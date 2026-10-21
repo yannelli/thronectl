@@ -1,11 +1,12 @@
 {
   "name": "thronectl",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Host daemon and CLI for the thronectl Cardputer ADV firmware",
   "type": "module",
   "license": "MIT",
   "bin": {
-    "thronectl": "dist/cli.js"
+    "thronectl": "dist/cli.js",
+    "throne": "dist/cli.js"
   },
   "files": [
     "dist"

@@ -1,6 +1,9 @@
 #pragma once
+#include <FS.h>
+#include <memory>
 #include "../core/input.h"
 #include "../core/services.h"
+#include "../net/crypto.h"
 
 /** Reads the TCA8418 matrix through M5Cardputer and emits key presses with auto-repeat. */
 class KeyboardHal {
@@ -106,4 +109,32 @@ class NvsStore : public SettingsStore {
   void wipe() override;
   bool loadBlob(const char* key, uint8_t* out, size_t len);
   void saveBlob(const char* key, const uint8_t* data, size_t len);
+};
+
+/** Firmware updates into the spare app slot (Arduino Update), or onto the microSD card for Launcher. */
+class OtaHal : public OtaApi {
+ public:
+  bool underLauncher() const override;
+  bool sdReady() override;
+  std::vector<SdImage> sdImages() override;
+  bool begin(uint32_t size, const std::string& sha256, const std::string& sdPath) override;
+  bool write(const uint8_t* data, size_t len) override;
+  bool finish() override;
+  void abort() override;
+  const std::string& error() const override { return err_; }
+  uint32_t openSd(const std::string& path) override;
+  int readSd(uint8_t* buf, size_t len) override;
+  void closeSd() override;
+
+ private:
+  enum class Sink : uint8_t { None, Flash, Sd };
+  bool setErr(const std::string& e);
+  uint32_t openFail(const std::string& e);
+
+  Sink sink_ = Sink::None;
+  std::string err_, sha_, sdPath_;
+  std::unique_ptr<tcrypto::Sha256> hash_;
+  uint32_t written_ = 0;
+  bool spiBegun_ = false, mounted_ = false;
+  fs::File in_, out_;
 };

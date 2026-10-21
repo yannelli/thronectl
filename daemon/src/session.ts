@@ -6,6 +6,7 @@ import { FrameReader, writeFrame } from "./framing.js";
 export const KIND_JSON = 0x01;
 export const KIND_MIC = 0x02;
 export const KIND_SPK = 0x03;
+export const KIND_OTA = 0x04;
 
 /** A framed connection. Frames queue until a reader calls next() or setHandler(). */
 export class Conn {

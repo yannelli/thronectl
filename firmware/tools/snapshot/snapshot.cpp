@@ -7,6 +7,7 @@
 #include "core/store.h"
 #include "core/theme.h"
 #include "core/ui.h"
+#include "core/updater.h"
 #include "screens/screens.h"
 
 static uint32_t g_now = 100000;
@@ -18,6 +19,8 @@ class MockLink : public LinkApi {
   std::string err, code = "482913", target = "Studio MacBook";
   HostInfo h;
   std::map<std::string, std::string> replies;
+  bool hold = false;  // keep callbacks instead of answering, like a slow host
+  std::vector<RpcCallback> held;
   MockLink() {
     h.id = "9f2c1a"; h.name = "Studio MacBook"; h.hostname = "studio"; h.os = "darwin"; h.arch = "arm64";
     h.user = "dev"; h.ver = "0.1.0"; h.paseo = true;
@@ -31,6 +34,10 @@ class MockLink : public LinkApi {
   void connectNew(const std::string&, uint16_t, const std::string&) override {}
   void disconnect() override {}
   uint32_t call(const char* m, JsonDocument&, RpcCallback cb, uint32_t) override {
+    if (hold) {
+      held.push_back(cb);
+      return 1;
+    }
     auto it = replies.find(m);
     JsonDocument r;
     deserializeJson(r, it == replies.end() ? "{}" : it->second);
@@ -103,7 +110,28 @@ class MockSys : public SystemApi {
   void powerOff() override {}
 };
 
+class MockOta : public OtaApi {
+ public:
+  bool launcher = false, finishOk = true;
+  std::string err;
+  bool underLauncher() const override { return launcher; }
+  bool sdReady() override { return true; }
+  std::vector<SdImage> sdImages() override {
+    return {{"/thronectl-cardputer-adv-v0.2.0.bin", "thronectl-cardputer-adv-v0.2.0.bin", 1248480},
+            {"/thronectl/thronectl-cardputer-adv-v0.1.2.bin", "thronectl-cardputer-adv-v0.1.2.bin", 1247904}};
+  }
+  bool begin(uint32_t, const std::string&, const std::string&) override { return true; }
+  bool write(const uint8_t*, size_t) override { return true; }
+  bool finish() override { return finishOk; }
+  void abort() override {}
+  const std::string& error() const override { return err; }
+  uint32_t openSd(const std::string&) override { return 1182944; }
+  int readSd(uint8_t*, size_t n) override { return (int)n; }
+  void closeSd() override {}
+};
+
 static MockLink link_;
+static MockOta ota_;
 static MockNet net_;
 static MockAudio audio_;
 static MockSys sys_;
@@ -137,6 +165,17 @@ static KeyEvent key(uint16_t k, bool shift = false) {
 
 static void type(const char* s) {
   for (; *s; s++) ui().handleKey(key((uint8_t)*s));
+}
+
+// Feeds the updater `n` chunks the way the host's KIND_OTA frames would.
+static void otaChunks(int n) {
+  static uint8_t buf[4 + Updater::CHUNK];
+  for (int i = 0; i < n && updater().active(); i++) {
+    uint32_t at = updater().written(), len = updater().size() - at < Updater::CHUNK ? updater().size() - at : Updater::CHUNK;
+    buf[0] = at >> 24; buf[1] = at >> 16; buf[2] = at >> 8; buf[3] = at;
+    buf[4] = 0xE9;
+    app().onOtaData(buf, 4 + len);
+  }
 }
 
 static void seed() {
@@ -211,6 +250,7 @@ int main(int argc, char** argv) {
   svc().net = &net_;
   svc().audio = &audio_;
   svc().sys = &sys_;
+  svc().ota = &ota_;
   seed();
   Settings& s = settings();
   s.splash = false;
@@ -292,6 +332,36 @@ int main(int argc, char** argv) {
   g_now += 2300;
   shot("voice_rec");
   app().voice.cancel();
+  link_.hold = true;
+  g_now += 20000;  // let the toast from the earlier shot expire
+  ui().home();
+  {
+    JsonDocument d;
+    deserializeJson(d, R"({"ver":"0.2.0","size":1182944,"sha256":"","from":"Studio MacBook"})");
+    app().onLinkEvent("ota.offer", d.as<JsonVariantConst>());
+  }
+  shot("update_offer");
+  ui().handleKey(key('y'));
+  otaChunks(60);
+  shot("update_progress");
+  updater().cancel("cancelled on the device");
+  ota_.launcher = true;
+  updater().startLink("0.2.0", 16384, "", true);
+  otaChunks(2);
+  ui().home();
+  ui().push(makeUpdate());
+  shot("update_saved_sd");
+  ota_.launcher = false;
+  ota_.finishOk = false;
+  ota_.err = "Checksum mismatch: the image was damaged on the way";
+  updater().startLink("0.2.0", 16384, "", false);
+  otaChunks(2);
+  shot("update_failed");
+  ui().home();
+  ui().push(makeSdUpdate());
+  shot("update_sd_list");
+  link_.hold = false;
+  link_.held.clear();
   link_.st = LinkState::Offline;
   ui().home();
   shot("home_offline");

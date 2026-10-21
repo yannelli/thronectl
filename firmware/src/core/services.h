@@ -112,11 +112,39 @@ class SystemApi {
   virtual void powerOff() = 0;
 };
 
+struct SdImage {
+  std::string path, name;
+  uint32_t size = 0;
+};
+
+/** Where firmware updates land: the spare app slot, or a file on the SD card that Launcher installs. */
+class OtaApi {
+ public:
+  virtual ~OtaApi() {}
+  /** True when Launcher (bmorcelli) owns the app slots. Updates then go to the SD card. */
+  virtual bool underLauncher() const = 0;
+  virtual bool sdReady() = 0;
+  /** .bin files in the card's root and /thronectl. */
+  virtual std::vector<SdImage> sdImages() = 0;
+  /** Empty sdPath writes to flash. Non-empty sha256 (hex) is checked in finish(). */
+  virtual bool begin(uint32_t size, const std::string& sha256, const std::string& sdPath) = 0;
+  virtual bool write(const uint8_t* data, size_t len) = 0;
+  /** Checks and commits the image: sets the boot slot, or renames the SD file into place. */
+  virtual bool finish() = 0;
+  virtual void abort() = 0;
+  virtual const std::string& error() const = 0;
+  /** Opens an SD image for reading. Merged images start at their first app partition. Returns the app size, 0 on error. */
+  virtual uint32_t openSd(const std::string& path) = 0;
+  virtual int readSd(uint8_t* buf, size_t len) = 0;
+  virtual void closeSd() = 0;
+};
+
 struct Services {
   LinkApi* link = nullptr;
   NetApi* net = nullptr;
   AudioApi* audio = nullptr;
   SystemApi* sys = nullptr;
+  OtaApi* ota = nullptr;
 };
 
 Services& svc();

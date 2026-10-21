@@ -9,6 +9,7 @@ import { startDiscovery } from "./discovery.js";
 import { DeviceStore } from "./identity.js";
 import { loadIdentity, type HostIdentity } from "./identity.js";
 import { logger } from "./log.js";
+import { loadFirmware, OtaStore } from "./ota.js";
 import { formatCode, PairingBroker, type PairRequest } from "./pairing.js";
 import { VERSION } from "./paths.js";
 import { DeviceSession, type HostInfo } from "./rpc.js";
@@ -27,6 +28,7 @@ export class Daemon {
   readonly broker = new PairingBroker();
   readonly agents: AgentManager;
   readonly sessions = new Set<DeviceSession>();
+  readonly ota = new OtaStore();
   private readonly sampler: StatsSampler;
   private recent: string[] = [];
   private tcp?: Server;
@@ -128,6 +130,7 @@ export class Daemon {
       latestStats: (): Stats | undefined => this.sampler.latest,
       recentCwds: () => this.recent,
       addRecentCwd: (cwd) => { this.recent = [cwd, ...this.recent.filter((c) => c !== cwd)].slice(0, 10); },
+      ota: this.ota,
     });
     this.sessions.add(session);
     log.info(`"${device.name}" connected from ${addr} (fw ${device.fw || "?"})`);
@@ -135,6 +138,7 @@ export class Daemon {
     channel.on("close", () => {
       clearInterval(idle);
       this.sessions.delete(session);
+      this.ota.disconnected(device.id);
       log.info(`"${device.name}" disconnected`);
     });
   }
@@ -168,6 +172,19 @@ export class Daemon {
         await Promise.all(targets.map((s) => s.say(String(args.text ?? ""))));
         return { sent: targets.length };
       },
+      "ota.push": (args) => {
+        const fw = loadFirmware(String(args.path ?? ""), String(args.source ?? "file"));
+        const match = String(args.device ?? "");
+        const targets = [...this.sessions].filter((s) => !match || s.device.id.startsWith(match) || s.device.name === match);
+        if (!targets.length) throw new Error(match ? `no connected device matches "${match}"` : "no device connected");
+        for (const s of targets) {
+          this.ota.offer(s.device.id, s.device.name, fw);
+          s.event("ota.offer", { ver: fw.version, size: fw.app.length, sha256: fw.sha256, from: this.cfg.name });
+        }
+        log.info(`offered firmware ${fw.version || "(no version)"} (${fw.app.length} bytes) to ${targets.map((s) => s.device.name).join(", ")}`);
+        return { version: fw.version, size: fw.app.length, devices: targets.map((s) => ({ id: s.device.id, name: s.device.name })) };
+      },
+      "ota.status": () => this.ota.list(),
       reload: () => {
         this.cfg = loadConfig();
         this.devices.reload();
