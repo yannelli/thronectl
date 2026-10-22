@@ -4,6 +4,7 @@
 #include "../core/input.h"
 #include "../core/services.h"
 #include "../net/crypto.h"
+#include "led.h"
 
 /** Reads the TCA8418 matrix through M5Cardputer and emits key presses with auto-repeat. */
 class KeyboardHal {
@@ -80,6 +81,7 @@ class SystemHal : public SystemApi {
   void setPanelSleep(bool asleep) override;
   void setRotationFlipped(bool flipped) override;
   void setLed(Rgb c) override;
+  void setLedPower(bool powered) override;
   void setCpuMhz(uint16_t mhz) override;
   uint32_t freeHeap() const override;
   uint32_t minFreeHeap() const override;
@@ -98,9 +100,9 @@ class SystemHal : public SystemApi {
   int batt_ = -1;
   bool chg_ = false, rising_ = false, asleep_ = false;
   float volts_ = 0, trendV_ = 0;
-  uint32_t battAt_ = 0, trendAt_ = 0, ledAt_ = 0;
-  int brightness_ = -1, rotation_ = -1;
-  Rgb led_{1, 1, 1};
+  uint32_t battAt_ = 0, trendAt_ = 0;
+  int rotation_ = -1;
+  LedOutput led_;
 };
 
 /** Settings and keys in NVS. */
@@ -111,6 +113,8 @@ class NvsStore : public SettingsStore {
   void wipe() override;
   bool loadBlob(const char* key, uint8_t* out, size_t len);
   void saveBlob(const char* key, const uint8_t* data, size_t len);
+  /** Reads the saved settings before setup(): true when Bluetooth should be able to start. */
+  static bool bluetoothAtBoot();
 };
 
 /** Firmware updates into the spare app slot (Arduino Update), or onto the microSD card for Launcher. */
@@ -148,4 +152,52 @@ class OtaHal : public OtaApi {
   uint32_t written_ = 0;
   bool spiBegun_ = false, mounted_ = false, needsFormat_ = false;
   fs::File in_, out_;
+};
+
+class NimBLEServer;
+class NimBLECharacteristic;
+
+/** Bluetooth LE peripheral (NimBLE) for one host. The GATT service carries the link's byte stream with credit flow control. */
+class BleHal : public BleApi, public LinkPipe {
+ public:
+  std::function<std::string()> deviceName;
+  void setDeviceId(const uint8_t id[8]) { memcpy(id_, id, 8); }
+  bool begin() override;
+  void end() override;
+  bool started() const override { return started_; }
+  void advertise(bool on, bool pairing) override;
+  LinkPipe* accepted() override;
+  bool hostConnected() const override { return conn_ != NO_CONN; }
+  const std::string& error() const override { return err_; }
+  bool needsRestart() const override { return !memoryKept; }
+  bool memoryKept = true;  // false when Arduino freed the controller's memory at boot
+
+  bool isOpen() const override;
+  size_t write(const uint8_t* data, size_t len) override;
+  size_t read(uint8_t* data, size_t len) override;
+  void close() override;
+
+  // From the NimBLE host task.
+  void onConnect(uint16_t conn);
+  void onDisconnect(uint16_t conn);
+  void onMtu(uint16_t mtu);
+  void onSubscribe(bool tx, bool on);
+  void onRx(const uint8_t* data, size_t len);
+
+ private:
+  static constexpr uint16_t NO_CONN = 0xFFFF;
+  void sendCredit(uint32_t consumed, uint16_t conn);
+  bool fail(const std::string& e);
+  NimBLEServer* srv_ = nullptr;
+  NimBLECharacteristic *tx_ = nullptr, *credit_ = nullptr;
+  std::unique_ptr<uint8_t[]> ring_;
+  // Shared with the host task under a spinlock. gen_ counts connections; the pipe is open while handed_ == gen_.
+  volatile uint32_t in_ = 0, out_ = 0, gen_ = 0;
+  volatile uint16_t conn_ = NO_CONN, mtu_ = 23;
+  volatile bool txSub_ = false, overflow_ = false;
+  uint32_t handed_ = 0, closed_ = 0, credited_ = 0, advRetryAt_ = 0;
+  uint16_t creditMtu_ = 0;
+  bool started_ = false, advPairing_ = false;
+  uint8_t id_[8] = {};
+  std::string err_;
 };

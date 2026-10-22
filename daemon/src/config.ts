@@ -44,6 +44,8 @@ export interface Config {
   projectRoots: string[];
   projects: string[];
   paseo: { enabled: "auto" | boolean; bin: string };
+  /** Bluetooth LE: "auto" uses it when the host has an adapter and the BLE module loads. */
+  ble: { enabled: "auto" | boolean };
   harness: Record<string, HarnessOverride>;
   voice: { stt: SttConfig; tts: TtsConfig; keys: Record<string, string>; local: LocalVoiceConfig };
   notify: { desktop: boolean };
@@ -61,6 +63,7 @@ export function defaultConfig(): Config {
     projectRoots: ["~/workspace", "~/code", "~/Developer", "~/src", "~/projects", "~/dev", "~/git", "~/repos"],
     projects: [],
     paseo: { enabled: "auto", bin: "paseo" },
+    ble: { enabled: "auto" },
     harness: {},
     voice: {
       stt: { provider: "auto", language: "en" },

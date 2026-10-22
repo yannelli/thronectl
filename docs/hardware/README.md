@@ -82,9 +82,7 @@ Battery sense in M5Unified:
 - M5Unified maps the LED to G21 (`M5Unified.inl:259`) with `pin_power = -1` (`M5Unified.inl:2254-2316`).
   On IDF 4.4 `M5UNIFIED_RMT_VERSION` is 1 (`LED_Strip_Class.hpp:17-23`), and the v1 branches of `LedBus_RMT::init/write` are empty
   (`LED_Strip_Class.inl:121` and `:179`). `init()` returns false, so `M5.Led` does nothing.
-- Arduino 2.0.17 `neopixelWrite(pin, r, g, b)` (`framework-arduinoespressif32/cores/esp32/esp32-hal-rgb-led.c:4-47`) works on G21.
-  It sends GRB, 24 bits, T0H 0.4 us / T1H 0.8 us, through `rmtInit(pin, RMT_TX_MODE, RMT_MEM_64)`.
-  It blocks for about 30 us. It binds the RMT channel to the first pin used (static state), so call it only with G21.
+- v0.6.0 uses the Arduino RMT driver directly with WS2812B-2020 pulse timings and 300 us reset gaps. It holds the backlight supply steady while an effect runs. See [LED output](led-output.md) for the code paths, timing evidence and checks.
 
 ## microSD
 
@@ -180,12 +178,7 @@ Battery sense in M5Unified:
 
 Gaps found in `firmware/src` and recommendations:
 
-1. RGB LED power (`hal/system.cpp:37-45`, `core/app.cpp:38`, `core/app.cpp:430`). `setLed` now uses `neopixelWrite(21, ...)`.
-   - Screen off sets brightness 0, which cuts LED power. The screen-off LED dimming in `updateLed` cannot show anything.
-   - `setLed` skips equal colors (`if (c == led_) return;`). After any backlight-off period the LED stays dark until the color changes.
-   - Below brightness 255 the LED supply is chopped at 256 Hz.
-   - Fix: re-send the color after each `setBrightness` call and about every 100 ms. Skip sends at brightness 0 (G21 idles low).
-     Decide the product rule for notifications with the screen off: keep the backlight at 255 with the panel in SLPIN, or accept no LED.
+1. RGB LED power: fixed in v0.6.0 by holding the shared supply steady during an effect, including its dark phases. Selected display brightness returns when the effect ends. Periodic color resends alone do not fix a switched supply. See [LED output](led-output.md).
 2. Charging state (`hal/system.cpp:21`, `core/app.cpp:220`). `isCharging()` is always `charge_unknown`, so `chg_` is always false.
    "plugged" is only true when the level is -1. Low-battery saver and auto-off (`core/app.cpp:232-242`) can act on USB power.
    - Fix: treat `HWCDC::isPlugged()` (USB host SOF seen) as external power. Add a voltage-trend rule for wall chargers.

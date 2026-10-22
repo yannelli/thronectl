@@ -26,6 +26,11 @@ void App::begin() {
   else if (s.hosts.empty()) ui().push(makeHosts());
   if (s.splash) ui().push(makeSplash());
   if (s.startupChime) svc().audio->chime(CH_STARTUP);
+  if (s.blePairAtBoot) {
+    s.blePairAtBoot = false;
+    settingsSave();
+    blePair();
+  }
   svc().net->connectSaved();
 }
 
@@ -162,8 +167,42 @@ int App::reconnectIn(uint32_t now) const {
   Settings& s = settings();
   LinkState st = svc().link->state();
   bool idle = st == LinkState::Offline || st == LinkState::Failed;
-  if (!idle || !s.autoConnect || manualOffline_ || !s.defaultHostEntry() || svc().net->wifiState() != WifiState::Connected) return -1;
+  const HostEntry* h = s.defaultHostEntry();
+  if (!idle || !s.autoConnect || manualOffline_ || !h || h->addr.empty() || svc().net->wifiState() != WifiState::Connected) return -1;
   return (int32_t)(nextReconnect_ - now) <= 0 ? 0 : (int)((nextReconnect_ - now + 999) / 1000);
+}
+
+void App::blePair() {
+  pairUntil_ = (nowMs() + 120000) | 1;
+  bleFailed_ = false;
+}
+
+/** Starts or stops the stack, advertises while the device has no live link, and hands a host's pipe to the link. */
+void App::updateBle(uint32_t now) {
+  BleApi* ble = svc().ble;
+  if (!ble) return;
+  bool pairing = blePairing(now);
+  if (pairUntil_ && !pairing) pairUntil_ = 0;
+  bool want = settings().bluetooth || pairing;
+  if (!want && ble->started()) ble->end();
+  if (!want) bleFailed_ = false;
+  if (want && !ble->started() && !bleFailed_ && !ble->needsRestart()) {
+    svc().net->setPowerSave(1);  // Wi-Fi must use modem sleep while Bluetooth shares the radio
+    powerKey_ = 0;
+    if (!ble->begin()) {
+      bleFailed_ = true;
+      ui().toast("error", "Bluetooth did not start", ble->error());
+    }
+  }
+  if (!ble->started()) return;
+  LinkState st = svc().link->state();
+  bool busy = st != LinkState::Offline && st != LinkState::Failed;  // includes a Wi-Fi connect in progress
+  ble->advertise(!busy && !ble->hostConnected(), pairing);
+  LinkPipe* p = ble->accepted();
+  if (!p) return;
+  if (busy && !svc().link->bluetooth()) return p->close();  // keep the Wi-Fi session
+  manualOffline_ = false;
+  svc().link->attach(p, pairing);
 }
 
 void App::manualDisconnect() {
@@ -205,17 +244,21 @@ void App::updatePower(uint32_t now) {
   const Settings& s = settings();
   Display d = display();
   bool busy = voice.active() || updater().active();
+  bool bt = svc().ble && svc().ble->started();
   uint32_t key = (uint32_t)d | s.cpuMhz << 2 | s.cpuSave << 4 | s.wifiSave << 6 | s.statsRate << 8 | s.statsDim << 10 |
                  s.statsOff << 12 | (lowBatt_ ? 1u : 0u) << 14 | (busy ? 1u : 0u) << 15 | 1u << 16;
   Screen* base = ui().base();
   if (base && base->wantsStats()) key |= 1u << 17;
+  if (bt) key |= 1u << 18;
   if (key == powerKey_) return;
   powerKey_ = key;
   bool slow = lowBatt_ || (s.cpuSave == 2 && d != Display::Active) || (s.cpuSave == 1 && d == Display::Off);
   svc().sys->setCpuMhz(slow && !busy ? 80 : CPU_VALUES[s.cpuMhz % 3]);
   uint8_t ps = s.wifiSave % 4 == 3 ? (d == Display::Off ? 2 : 1) : s.wifiSave % 4;
   if (lowBatt_ && ps < 2) ps = 2;
-  svc().net->setPowerSave(busy ? 0 : ps);
+  if (busy) ps = 0;
+  if (bt && ps == 0) ps = 1;
+  svc().net->setPowerSave(ps);
   if (svc().link->ready() && statsInterval() != statsMs_) resubscribe();
 }
 
@@ -256,6 +299,7 @@ void App::onLinkState(LinkState st) {
   if (st == LinkState::Ready) {
     backoff_ = 2000;
     manualOffline_ = false;
+    pairUntil_ = 0;
     const HostInfo& h = s.link->host();
     if (settings().tz == 0 && h.hasTz) {
       char tz[40];
@@ -418,12 +462,13 @@ void App::updateLed(uint32_t now) {
   int slot = -1;
   uint32_t t = now;
   uint8_t bright = s.ledBright;
+  bool previewGap = false;
   if (previewSlot_ >= 0) {
     slot = previewSlot_;
     t = elapsedMs(now, previewAt_);
     // Alerts replay with a short gap so their length shows; states just loop.
     uint32_t len = slot >= LED_FIRST_ALERT ? led::lengthMs(s.leds[slot]) : 0;
-    if (len && t % (len + 700) >= len) slot = -1;
+    if (len && t % (len + 700) >= len) previewGap = true;
     else if (len) t %= len + 700;
   } else if (s.ledMode) {
     if (alertSlot_ >= 0 && alertLen_ && elapsedMs(now, alertAt_) >= alertLen_) alertSlot_ = -1;
@@ -435,9 +480,10 @@ void App::updateLed(uint32_t now) {
     }
     if (quietNow()) bright = s.ledQuiet == 0 ? bright : s.ledQuiet == 1 ? bright / 4 : 0;
     if (screenOff_ || lowBatt_) bright /= 2;
-    if (screenOff_ && !ledKeptLit()) slot = -1;
   }
-  svc().sys->setLed(slot >= 0 ? led::render(s.leds[slot], slot, t, bright) : Rgb{});
+  if (screenOff_ && !ledKeptLit()) slot = -1;
+  svc().sys->setLedPower(slot >= 0 && s.leds[slot].fx && bright);
+  svc().sys->setLed(slot >= 0 && !previewGap ? led::render(s.leds[slot], slot, t, bright) : Rgb{});
 }
 
 uint32_t App::frameInterval(uint32_t now) const {
@@ -456,7 +502,8 @@ void App::loop(uint32_t now) {
   if (st != lastState_) onLinkState(st);
   bool idle = st == LinkState::Offline || st == LinkState::Failed;
   if (idle && s.autoConnect && !manualOffline_ && sv.net->wifiState() == WifiState::Connected && now >= nextReconnect_) {
-    if (HostEntry* h = s.defaultHostEntry()) {
+    HostEntry* h = s.defaultHostEntry();
+    if (h && !h->addr.empty()) {  // a host paired over Bluetooth has no Wi-Fi address yet
       sv.link->connectHost(*h);
       nextReconnect_ = now + backoff_;
       backoff_ = backoff_ * 2 > 30000 ? 30000 : backoff_ * 2;
@@ -486,6 +533,7 @@ void App::loop(uint32_t now) {
   }
   checkBattery(now);
   remindWaiting(now);
+  updateBle(now);
   updatePower(now);
   updateLed(now);
 }

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateKeyPair, type KeyPair } from "./crypto.js";
 import { configDir, VERSION } from "./paths.js";
-import { clientHandshake, Conn, type HostPeer, type SecureChannel } from "./session.js";
+import { clientHandshake, Conn, type HostPeer, type SecureChannel, type Stream } from "./session.js";
 
 /** A software device: same protocol as the firmware. Used by `thronectl sim` and the e2e tests. */
 export class SimDevice {
@@ -36,6 +36,11 @@ export class SimDevice {
   async connect(host: string, port: number): Promise<HostPeer> {
     const sock = connect(port, host);
     await new Promise<void>((res, rej) => { sock.once("connect", res); sock.once("error", rej); });
+    return this.attach(sock);
+  }
+
+  /** The same, over a stream that is already open (the Bluetooth pipe in tests). */
+  async attach(sock: Stream): Promise<HostPeer> {
     const conn = new Conn(sock);
     const hs = await clientHandshake(conn, this.keys, this.name, VERSION, (h) => this.knownHosts.get(h.id) === h.pk.toString("base64"));
     const pinned = this.knownHosts.get(hs.host.id);

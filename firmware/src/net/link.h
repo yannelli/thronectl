@@ -3,11 +3,13 @@
 #include "../core/services.h"
 #include "crypto.h"
 
-/** Encrypted TCP link to the host daemon (docs/protocol.md). Non-blocking; call loop() often. */
+/** Encrypted link to the host daemon (docs/protocol.md), over TCP or a LinkPipe. Non-blocking; call loop() often. */
 class Link : public LinkApi {
  public:
   void begin(const uint8_t priv[32], const uint8_t pub[32]);
   void loop(uint32_t now);
+  void attach(LinkPipe* pipe, bool allowNew) override;
+  bool bluetooth() const override { return pipe_ != nullptr; }
 
   std::function<std::string()> deviceName;
   std::function<void(const char* ev, JsonVariantConst d)> onEvent;
@@ -62,6 +64,9 @@ class Link : public LinkApi {
   bool sealed_ = false;
   uint64_t txCtr_ = 0, rxCtr_ = 0;
   int fd_ = -1;
+  LinkPipe* pipe_ = nullptr;
+  bool pipeNew_ = false;
+  bool live() const { return fd_ >= 0 || pipe_; }
   std::vector<uint8_t> rx_;
   std::string tx_;
   std::map<uint32_t, Pending> pending_;

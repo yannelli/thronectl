@@ -1,8 +1,13 @@
 // Runs the firmware's Link and crypto code on the host against a real thronectl daemon.
+#include <arpa/inet.h>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <fcntl.h>
+#include <sys/socket.h>
 #include <thread>
+#include <unistd.h>
 #include "core/settings.h"
 #include "core/theme.h"
 #include "core/updater.h"
@@ -137,6 +142,65 @@ static void testOta(const char* image) {
   pump(500);
 }
 
+/** A LinkPipe over TCP that takes at most one BLE-sized packet per write, like the Bluetooth path. */
+class SocketPipe : public LinkPipe {
+ public:
+  bool open(const char* host, uint16_t port) {
+    fd_ = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in sa{};
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(port);
+    inet_pton(AF_INET, host, &sa.sin_addr);
+    if (connect(fd_, (sockaddr*)&sa, sizeof sa) != 0) return false;
+    fcntl(fd_, F_SETFL, fcntl(fd_, F_GETFL, 0) | O_NONBLOCK);
+    return true;
+  }
+  bool isOpen() const override { return fd_ >= 0; }
+  size_t write(const uint8_t* d, size_t n) override {
+    if (fd_ < 0) return 0;
+    ssize_t k = send(fd_, d, n < 244 ? n : 244, MSG_DONTWAIT);
+    return k > 0 ? (size_t)k : 0;
+  }
+  size_t read(uint8_t* d, size_t n) override {
+    if (fd_ < 0) return 0;
+    ssize_t k = recv(fd_, d, n, MSG_DONTWAIT);
+    if (k == 0 || (k < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) close();
+    return k > 0 ? (size_t)k : 0;
+  }
+  void close() override {
+    if (fd_ >= 0) ::close(fd_);
+    fd_ = -1;
+  }
+
+ private:
+  int fd_ = -1;
+};
+
+static void testPipe(const char* host, uint16_t port) {
+  static SocketPipe pipe;
+  CHECK(pipe.open(host, port), "pipe connects");
+  link_.attach(&pipe, false);
+  pump(10000, [] { return link_.state() == LinkState::Ready || link_.state() == LinkState::Failed || link_.state() == LinkState::Pairing; });
+  CHECK(link_.state() == LinkState::Ready, ("known host over a Bluetooth-style pipe: " + link_.error()).c_str());
+  CHECK(link_.bluetooth(), "link reports the pipe");
+  Result r = rpc("harness.list", "{}");
+  CHECK(r.ok && r.json.find("direct:echo") != std::string::npos, "harness.list over the pipe");
+  r = rpc("config.groups", "{}");
+  CHECK(r.ok && r.json.find("harnesses") != std::string::npos, "config.groups over the pipe");
+  std::string addr = settings().hosts[0].addr;
+  link_.disconnect();
+  CHECK(!pipe.isOpen(), "disconnect closes the pipe");
+  CHECK(settings().hosts[0].addr == addr, "the pipe keeps the saved Wi-Fi address");
+
+  auto saved = settings().hosts;
+  settings().hosts.clear();
+  CHECK(pipe.open(host, port), "pipe connects again");
+  link_.attach(&pipe, false);
+  pump(5000, [] { return link_.state() == LinkState::Failed || link_.state() == LinkState::Ready; });
+  CHECK(link_.state() == LinkState::Failed && link_.error().find("unknown host") != std::string::npos, "an unknown host is refused outside pairing");
+  settings().hosts = saved;
+}
+
 int main(int argc, char** argv) {
   if (argc < 3) {
     fprintf(stderr, "usage: linkcheck <host> <port> [firmware.bin]\n");
@@ -222,6 +286,7 @@ int main(int argc, char** argv) {
   CHECK(rpc("ping", "{}").ok, "ping after reconnect");
   if (argc > 3) testOta(argv[3]);
   link_.disconnect();
+  testPipe(host, port);
   printf("%s: %d failure(s)\n", failures ? "FAILED" : "PASSED", failures);
   return failures ? 1 : 0;
 }

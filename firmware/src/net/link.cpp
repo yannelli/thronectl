@@ -55,6 +55,8 @@ void Link::disconnect() {
 void Link::closeSocket() {
   if (fd_ >= 0) close(fd_);
   fd_ = -1;
+  if (pipe_) pipe_->close();
+  pipe_ = nullptr;
   rx_.clear();
   tx_.clear();
   sealed_ = false;
@@ -87,6 +89,7 @@ void Link::start(const std::string& addr, uint16_t port) {
   txCtr_ = rxCtr_ = 0;
   stateAt_ = lastRx_ = millis();
 
+  if (addr.empty()) return fail("This host was paired over Bluetooth. Pick it in Hosts once on its network.");
   sockaddr_in sa{};
   sa.sin_family = AF_INET;
   sa.sin_port = htons(port);
@@ -106,6 +109,24 @@ void Link::start(const std::string& addr, uint16_t port) {
   int r = ::connect(fd_, (sockaddr*)&sa, sizeof sa);
   if (r < 0 && errno != EINPROGRESS) return fail("Connection refused");
   st_ = LinkState::Connecting;
+}
+
+void Link::attach(LinkPipe* pipe, bool allowNew) {
+  closeSocket();
+  failPending("reconnecting");
+  pipe_ = pipe;
+  pipeNew_ = allowNew;
+  haveTarget_ = false;
+  targetName_ = "Bluetooth";
+  addr_.clear();
+  port_ = 0;
+  err_.clear();
+  code_.clear();
+  host_ = HostInfo();
+  txCtr_ = rxCtr_ = 0;
+  stateAt_ = lastRx_ = millis();
+  st_ = LinkState::Handshake;
+  sendHello();
 }
 
 void Link::sendFrame(const uint8_t* data, size_t len) {
@@ -145,6 +166,10 @@ void Link::sendHello() {
 }
 
 bool Link::flush() {
+  if (pipe_) {
+    if (!tx_.empty()) tx_.erase(0, pipe_->write((const uint8_t*)tx_.data(), tx_.size()));
+    return pipe_->isOpen();
+  }
   while (!tx_.empty()) {
     int n = send(fd_, tx_.data(), tx_.size(), MSG_DONTWAIT);
     if (n > 0) tx_.erase(0, n);
@@ -156,7 +181,16 @@ bool Link::flush() {
 
 bool Link::receive() {
   uint8_t buf[1460];
-  for (int i = 0; i < 16; i++) {
+  for (int i = 0; pipe_ && i < 16; i++) {
+    size_t n = pipe_->read(buf, sizeof buf);
+    if (!n) {
+      if (!pipe_->isOpen()) return false;
+      break;
+    }
+    rx_.insert(rx_.end(), buf, buf + n);
+    lastRx_ = millis();
+  }
+  for (int i = 0; fd_ >= 0 && i < 16; i++) {
     int n = recv(fd_, buf, sizeof buf, MSG_DONTWAIT);
     if (n > 0) {
       rx_.insert(rx_.end(), buf, buf + n);
@@ -166,7 +200,7 @@ bool Link::receive() {
     else return false;
   }
   size_t off = 0;
-  while (fd_ >= 0 && rx_.size() - off >= 4) {
+  while (live() && rx_.size() - off >= 4) {
     uint8_t* p = rx_.data() + off;
     size_t len = (size_t)p[0] << 24 | (size_t)p[1] << 16 | (size_t)p[2] << 8 | p[3];
     if (len > MAX_FRAME) {
@@ -180,7 +214,7 @@ bool Link::receive() {
     off += 4 + len;
     handleFrame(p + 4, len);  // decrypts in place; the bytes are consumed either way
   }
-  if (fd_ >= 0 && off) rx_.erase(rx_.begin(), rx_.begin() + off);
+  if (live() && off) rx_.erase(rx_.begin(), rx_.begin() + off);
   if (rx_.capacity() > 16384 && rx_.size() < 4096) rx_.shrink_to_fit();
   return true;
 }
@@ -236,6 +270,7 @@ void Link::handleHostHello(JsonDocument& doc) {
     return fail("Host key changed. Forget this host in Hosts, then pair again.");
   HostEntry* saved = settings().findHost(id);
   bool known = saved && memcmp(saved->pk, hpk_, 32) == 0;
+  if (pipe_ && !known && !pipeNew_) return fail("An unknown host tried to connect over Bluetooth.");
   uint8_t ss[32], ee[32];
   if (!tcrypto::x25519(priv_, hpk_, ss) || !tcrypto::x25519(epriv_, hepk, ee)) return fail("Bad host key");
   tcrypto::deriveKeys(pub_, epub_, dn_, hpk_, hepk, hn, ss, ee, keys_);
@@ -282,6 +317,10 @@ void Link::handleAuth(JsonDocument& doc) {
     memcpy(e.pk, hpk_, 32);
     Settings& s = settings();
     HostEntry* cur = s.findHost(e.id);
+    if (pipe_ && cur) {  // Bluetooth has no address: keep the Wi-Fi one
+      e.addr = cur->addr;
+      e.port = cur->port;
+    }
     if (!cur || cur->addr != e.addr || cur->port != e.port || cur->name != e.name || cur->os != e.os) {
       s.upsertHost(e);
       settingsSave();
@@ -341,8 +380,8 @@ void Link::loop(uint32_t now) {
     deferred_.clear();
     for (auto& cb : list) cb(false, JsonVariantConst(), nullptr);
   }
-  if (fd_ < 0) return;
-  if (st_ == LinkState::Connecting) {
+  if (!live()) return;
+  if (st_ == LinkState::Connecting && fd_ >= 0) {
     fd_set w;
     FD_ZERO(&w);
     FD_SET(fd_, &w);
@@ -362,7 +401,7 @@ void Link::loop(uint32_t now) {
   }
   if (!flush()) return fail("Connection lost");
   if (!receive()) return fail(st_ == LinkState::Pairing ? "Pairing closed by the host" : "Connection closed by the host");
-  if (fd_ < 0) return;
+  if (!live()) return;
   if (!flush()) return fail("Connection lost");
   if (st_ == LinkState::Handshake && elapsedMs(now, stateAt_) > 15000) return fail("Handshake timed out");
   if (st_ == LinkState::Pairing && elapsedMs(now, stateAt_) > 130000) return fail("Pairing timed out");

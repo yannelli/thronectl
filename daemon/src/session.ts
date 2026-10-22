@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import type { Socket } from "node:net";
+import type { Duplex } from "node:stream";
 import { deriveKeys, generateKeyPair, keyId, open, random, seal, sha256, x25519, type KeyPair, type SessionKeys } from "./crypto.js";
 import { FrameReader, writeFrame } from "./framing.js";
 
@@ -8,6 +8,9 @@ export const KIND_MIC = 0x02;
 export const KIND_SPK = 0x03;
 export const KIND_OTA = 0x04;
 
+/** The byte stream under a session: a TCP socket, or the Bluetooth pipe (remoteAddress names the device). */
+export type Stream = Duplex & { remoteAddress?: string };
+
 /** A framed connection. Frames queue until a reader calls next() or setHandler(). */
 export class Conn {
   private queue: Buffer[] = [];
@@ -15,7 +18,7 @@ export class Conn {
   private handler?: (frame: Buffer) => void;
   closed = false;
 
-  constructor(readonly sock: Socket) {
+  constructor(readonly sock: Stream) {
     const reader = new FrameReader((f) => this.deliver(f), (e) => sock.destroy(e));
     sock.on("data", (chunk: Buffer) => reader.push(chunk));
     sock.on("close", () => {

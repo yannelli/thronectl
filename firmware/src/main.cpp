@@ -15,7 +15,12 @@ static NvsStore nvs;
 static OtaHal ota;
 static Net net;
 static Link hostLink;
+static BleHal ble;
 static Canvas* canvas = nullptr;
+static bool btAtBoot = false;
+
+// Arduino frees the Bluetooth controller's memory at boot unless this returns true, so keep it only for Bluetooth users.
+extern "C" bool btInUse() { return btAtBoot = NvsStore::bluetoothAtBoot(); }
 static uint32_t lastFrame = 0;
 
 static std::string deviceName() {
@@ -59,6 +64,11 @@ void setup() {
   loadKeys(priv, pub);
   hostLink.begin(priv, pub);
   memset(priv, 0, sizeof priv);
+  uint8_t keyHash[32];
+  tcrypto::sha256(pub, 32, keyHash);
+  ble.setDeviceId(keyHash);  // the daemon's key id: the first 8 bytes
+  ble.deviceName = deviceName;
+  ble.memoryKept = btAtBoot;
   hostLink.deviceName = deviceName;
   hostLink.onEvent = [](const char* ev, JsonVariantConst d) { app().onLinkEvent(ev, d); };
   hostLink.onSpeaker = [](const uint8_t* pcm, size_t n) { app().onSpeaker(pcm, n); };
@@ -75,6 +85,7 @@ void setup() {
   s.audio = &audio;
   s.sys = &sys;
   s.ota = &ota;
+  s.ble = &ble;
   app().begin();
 }
 

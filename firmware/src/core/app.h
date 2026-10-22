@@ -42,6 +42,9 @@ class App {
   /** Seconds until the next automatic reconnect, or -1 when none is planned. */
   int reconnectIn(uint32_t now) const;
   void manualDisconnect();
+  /** Lets a host that is not paired yet connect over Bluetooth, for 2 minutes. */
+  void blePair();
+  bool blePairing(uint32_t now) const { return pairUntil_ && (int32_t)(pairUntil_ - now) > 0; }
   /** Plays an alert effect (LED_DONE and up). `force` ignores the LED mode, for tests. */
   void ledAlert(int slot, bool force = false);
   /** Loops one slot on the LED while its settings page is open; -1 ends the preview. */
@@ -62,6 +65,7 @@ class App {
   void updatePower(uint32_t now);
   void checkBattery(uint32_t now);
   void remindWaiting(uint32_t now);
+  void updateBle(uint32_t now);
   bool alertWanted(const std::string& kind, int secs) const;
   void nudge(int dVolume, int dBrightness);
 
@@ -76,6 +80,8 @@ class App {
   uint32_t powerKey_ = 0, statsMs_ = 0, battAt_ = 0, shutdownAt_ = 0;
   bool lowBatt_ = false, battWarned_ = false;
   uint32_t remindAt_ = 0;
+  uint32_t pairUntil_ = 0;
+  bool bleFailed_ = false;
 };
 
 App& app();

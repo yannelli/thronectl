@@ -1,5 +1,6 @@
 // Drives the real App the way main.cpp does on the device and sends random keys, link and Wi-Fi changes.
 // Built with AddressSanitizer and UBSan: any memory error stops the run with a stack trace.
+#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -38,9 +39,20 @@ class FuzzLink : public LinkApi {
   const std::string& pairCode() const override { return code; }
   const HostInfo& host() const override { return h; }
   const std::string& targetName() const override { return target; }
-  void connectHost(const HostEntry&) override { st = LinkState::Connecting; }
-  void connectNew(const std::string&, uint16_t, const std::string&) override { st = LinkState::Connecting; }
-  void disconnect() override { st = LinkState::Offline; }
+  LinkPipe* pipe = nullptr;
+  bool bluetooth() const override { return pipe != nullptr; }
+  void attach(LinkPipe* p, bool) override {
+    if (pipe && pipe != p) pipe->close();
+    pipe = p;
+    st = LinkState::Handshake;
+  }
+  void connectHost(const HostEntry&) override { dropPipe(); st = LinkState::Connecting; }
+  void connectNew(const std::string&, uint16_t, const std::string&) override { dropPipe(); st = LinkState::Connecting; }
+  void disconnect() override { dropPipe(); st = LinkState::Offline; }
+  void dropPipe() {
+    if (pipe) pipe->close();
+    pipe = nullptr;
+  }
   uint32_t call(const char* m, JsonDocument&, RpcCallback cb, uint32_t) override {
     JsonDocument r;
     bool ok = st == LinkState::Ready && pick(4);
@@ -141,13 +153,15 @@ class FuzzAudio : public AudioApi {
 class FuzzSys : public SystemApi {
  public:
   int pct = 46, hour = 1;
-  bool chg = false;
+  bool chg = false, ledPowered = false;
+  Rgb ledColor{};
   int batteryPct() const override { return pct; }
   bool charging() const override { return chg; }
   float batteryVolts() const override { return 3.7f; }
   void setBrightness(uint8_t) override {}
   void setRotationFlipped(bool) override {}
-  void setLed(Rgb) override {}
+  void setLed(Rgb color) override { ledColor = color; }
+  void setLedPower(bool powered) override { ledPowered = powered; }
   void setCpuMhz(uint16_t) override {}
   uint32_t freeHeap() const override { return 180000; }
   uint32_t minFreeHeap() const override { return 140000; }
@@ -160,6 +174,38 @@ class FuzzSys : public SystemApi {
   void reboot() override {}
   void factoryReset() override { settings() = Settings(); }
   void powerOff() override {}
+};
+
+class FuzzPipe : public LinkPipe {
+ public:
+  bool open = false;
+  bool isOpen() const override { return open; }
+  size_t write(const uint8_t*, size_t n) override { return open ? n : 0; }
+  size_t read(uint8_t*, size_t) override { return 0; }
+  void close() override { open = false; }
+};
+
+/** Starts and stops at random, and now and then a host connects. */
+class FuzzBle : public BleApi {
+ public:
+  bool on = false, adv = false, pairing = false, host = false, fresh = false;
+  FuzzPipe pipe;
+  std::string err = "no controller";
+  bool begin() override { return on = pick(5) != 0; }
+  void end() override { on = adv = host = fresh = false; pipe.close(); }
+  bool started() const override { return on; }
+  void advertise(bool a, bool p) override { adv = a; pairing = p; }
+  LinkPipe* accepted() override {
+    if (!fresh) return nullptr;
+    fresh = false;
+    return &pipe;
+  }
+  bool hostConnected() const override { return host; }
+  const std::string& error() const override { return err; }
+  void world() {
+    if (on && adv && pick(3) == 0) { host = fresh = pipe.open = true; }
+    else if (host && pick(2) == 0) { host = false; pipe.close(); }
+  }
 };
 
 class FuzzOta : public OtaApi {
@@ -206,6 +252,7 @@ static FuzzNet net_;
 static FuzzAudio audio_;
 static FuzzSys sys_;
 static FuzzOta ota_;
+static FuzzBle ble_;
 
 // A KIND_OTA frame body: the next offset the updater expects, or a random one.
 static void otaFrame() {
@@ -240,7 +287,7 @@ static void linkEvent(const char* ev, const char* json) {
 }
 
 static void randomWorld() {
-  switch (pick(15)) {
+  switch (pick(17)) {
     case 0: link_.st = (LinkState)pick(6); break;
     case 1: net_.st = (WifiState)pick(4); break;
     case 2: linkEvent("stats", R"({"cpu":37,"cores":[30,45],"load":[1,2,3],"mem":[2000,8000],"disk":[10,100],"net":[1,2],"up":5})"); break;
@@ -254,6 +301,8 @@ static void randomWorld() {
     case 10: case 11: otaFrame(); break;
     case 12: ota_.launcher = pick(2); break;
     case 13: sys_.pct = pick(3) ? -1 + (int)pick(102) : (int)pick(6); sys_.chg = pick(3) == 0; sys_.hour = pick(24); break;
+    case 15: ble_.world(); break;
+    case 16: settings().bluetooth = pick(2); if (pick(4) == 0) app().blePair(); break;
     case 14: linkEvent("notify", pick(2) ? R"({"kind":"done","title":"b","body":"ok","agent":"d-2","secs":12})" : R"({"kind":"error","title":"c","body":"x"})"); break;
     default: break;
   }
@@ -273,7 +322,27 @@ int main(int argc, char** argv) {
   svc().audio = &audio_;
   svc().sys = &sys_;
   svc().ota = &ota_;
+  svc().ble = &ble_;
   app().begin();
+  Settings saved = settings();
+  settings().ledBright = 255;
+  settings().leds[LED_DONE] = {4, 2, 1, 4, 4};
+  app().ledPreview(LED_DONE);
+  g_now += 16;
+  app().loop(g_now);
+  assert(sys_.ledPowered && !(sys_.ledColor == Rgb{}));
+  g_now += 600;
+  app().loop(g_now);
+  assert(sys_.ledPowered && sys_.ledColor == Rgb{});
+  g_now += 2500;
+  app().loop(g_now);
+  assert(sys_.ledPowered && sys_.ledColor == Rgb{});
+  app().ledPreview(-1);
+  settings().ledMode = 0;
+  g_now += 16;
+  app().loop(g_now);
+  assert(!sys_.ledPowered && sys_.ledColor == Rgb{});
+  settings() = saved;
   uint32_t lastFrame = 0;
   UpdatePhase lastPhase = UpdatePhase::Idle;
   long phases[4] = {0};

@@ -21,6 +21,38 @@ The device (Cardputer ADV) is the client. The host daemon (`thronectl daemon`) i
 - Handshake frames are plaintext UTF-8 JSON.
 - All frames after the handshake are encrypted (see Encryption).
 
+## Bluetooth LE transport
+
+The link can also run over Bluetooth LE. The device is the GATT peripheral. The daemon is the central. The bytes on the link are the same as on TCP: the frames in Framing, then the same handshake and encryption.
+
+| UUID | Name | Properties | Content |
+|------|------|------------|---------|
+| `7b3e0001-6f1a-4c2e-9d6a-2f1c8e5a7d10` | service | | |
+| `7b3e0002-6f1a-4c2e-9d6a-2f1c8e5a7d10` | RX | write without response | Bytes from the host to the device |
+| `7b3e0003-6f1a-4c2e-9d6a-2f1c8e5a7d10` | TX | notify | Bytes from the device to the host |
+| `7b3e0004-6f1a-4c2e-9d6a-2f1c8e5a7d10` | CREDIT | read, notify | u32 LE bytes the device has read from RX since the connection started, then u16 LE ATT MTU |
+
+Hosts cache this layout, so it does not change between versions.
+
+Advertising:
+
+- The advert has the flags and the 128-bit service UUID. The scan response has the manufacturer data and the device name (up to 14 bytes).
+- Manufacturer data, 13 bytes: company ID `0xFFFF` (u16 LE), ASCII `TC`, the 8-byte device ID (see Identity), and a flags byte. Bit 0 of the flags is set while the device's pairing window is open.
+- The device advertises only while it has no link and no host is connected.
+
+Connection:
+
+- The daemon connects to a device that it has paired, or to a device that has the pairing flag set. It does not connect to a device that already has a session with it.
+- After it connects, the daemon reads CREDIT, subscribes to CREDIT and then to TX. The device starts the handshake (`hello`) when the host subscribes to TX.
+- A device refuses a host that it has not paired, unless its pairing window is open.
+- Either side writes in packets of at most ATT MTU - 3 bytes. A packet can split a frame at any byte.
+
+Flow control:
+
+- The device reads RX into a 16384-byte buffer. The host keeps at most a window of bytes unread: 4096 on macOS, 12288 on other hosts. The unread count is bytes sent minus the CREDIT count.
+- The device notifies CREDIT after each 1024 bytes it reads, when its buffer is empty, and when the MTU changes. A new connection starts the count at 0.
+- If the host writes more than the buffer holds, the device closes the connection.
+
 ## Identity
 
 - Each side has a static X25519 key pair. The device stores its key in NVS. The daemon stores its key in `~/.config/thronectl/identity.json`.

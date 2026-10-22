@@ -70,6 +70,7 @@ function staticFields(cfg: Config, group: string): Field[] {
         field(cfg, "port", "Port", "number", { restart: true }),
         field(cfg, "bind", "Bind address", "text", { restart: true }),
         field(cfg, "discovery", "Discovery", "bool", { restart: true, help: "Answer device scans on the LAN" }),
+        { ...field(cfg, "ble.enabled", "Bluetooth", "choice"), value: String(cfg.ble?.enabled ?? "auto"), options: ["auto", "true", "false"], restart: true, help: "Connect to paired devices nearby" },
         { key: "restart", label: "Restart daemon", type: "action", value: "", help: "Applies port, bind and discovery", confirm: "Agents keep running. The device reconnects." },
       ];
     case "projects":
@@ -216,7 +217,7 @@ export function applyField(cfg: Config, key: string, raw: unknown): { cfg: Confi
     }
     case "choice":
       if (!f.options?.includes(s)) throw new Error(`${f.label} must be one of: ${f.options?.join(", ")}`);
-      value = key === "paseo.enabled" && s !== "auto" ? s === "true" : s;
+      value = (key === "paseo.enabled" || key === "ble.enabled") && s !== "auto" ? s === "true" : s;
       break;
     case "list": value = s.split(/\n|,/).map((x) => x.trim()).filter(Boolean); break;
     default: value = s;

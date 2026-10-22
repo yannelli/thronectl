@@ -5,7 +5,7 @@ Run your coding agents from a keyboard that fits in your pocket.
 thronectl has two parts:
 
 - **Firmware** for the M5Stack **Cardputer ADV** (StampS3A, ESP32-S3FN8, 1.14" ST7789V2 IPS).
-- **A host daemon** for macOS and Linux. It runs your agent CLIs in terminals on the host and talks to the device over an encrypted Wi-Fi link.
+- **A host daemon** for macOS and Linux. It runs your agent CLIs in terminals on the host and talks to the device over an encrypted link, on Wi-Fi or Bluetooth LE.
 
 From the device you can start, watch, prompt, approve and stop agents (Claude Code, Codex, Pi, Cursor Agent, Antigravity, Gemini CLI, OpenCode, Amp and more). You can also open a real shell on the host, see CPU, memory, disk and network levels, kill processes, and talk to your agents with push-to-talk. Replies are read back on the device speaker.
 
@@ -25,6 +25,8 @@ From the device you can start, watch, prompt, approve and stop agents (Claude Co
 | Absolutely Light (Claude-inspired) | Absolutely Dark | CPU, Wi-Fi and stats power saving |
 | ![Host settings](docs/img/host_settings.png) | ![Host speech](docs/img/host_voice.png) | ![Keys](docs/img/host_keys.png) |
 | Edit the daemon's config from the device | Local voice: install and switch on | API keys, shown masked |
+| ![Bluetooth](docs/img/settings_bluetooth.png) | ![Simple mode](docs/img/simple_home.png) | ![Notifications](docs/img/notices.png) |
+| Bluetooth link when there is no shared Wi-Fi | Simple mode: one approval at a time | Alerts you missed |
 
 ## Quick start
 
@@ -197,7 +199,7 @@ Two font sizes: 40x15 (default) and 60x20 (Settings > Display > Terminal font). 
 | Voice | Read replies aloud, push to talk (hold or tap), space to talk, mic gain, send without review, host voice name, test speaker, host speech (local voice install and switch) |
 | LED | LED mode (off, status and alerts, alerts only), brightness, in quiet hours, with screen off, an effect for each state and alert, reset |
 | Agents | Simple mode, confirm before ending, open terminal on launch, show exited agents, default harness, clear notifications |
-| Network | Wi-Fi networks, hosts and pairing, host settings, auto-connect, device name, time zone (or from host), disconnect, reconnect |
+| Network | Wi-Fi networks, hosts and pairing, host settings, auto-connect, Bluetooth, pair over Bluetooth, device name, time zone (or from host), disconnect, reconnect |
 | Keyboard | Key repeat delay and rate, shortcut list |
 | Power | CPU speed, CPU saver, Wi-Fi power save, stats when active, dimmed and screen off, battery saver at 20%, turn off at 3%, power off |
 | Device | About, check for updates, update from SD card, back up settings to SD, restore settings from SD, reset settings (keeps Wi-Fi and pairing), reboot, factory reset |
@@ -208,7 +210,7 @@ Themes: Throne, Midnight, Tokyo Night, Catppuccin, Dracula, Nord, Gruvbox, Solar
 
 **LED.** Each state and alert has its own effect: Standby, Working, Waiting, Offline and Charging run in the background; Done, Attention, Error and Info play once. Pick an effect (solid, breathe, pulse, blink, double blink, heartbeat, strobe, flicker, rainbow, ramp), a color (the theme accent or one of 13), a speed, a level and, for alerts, a length (cycles, seconds, or until a key press). The LED plays the effect while its page is open. Defaults: a slow dim breath on standby, a breath while agents work, a pulse while one waits, a double blink when a turn ends, a fast blink for approvals and a strobe on errors.
 
-The LED gets its power through the display backlight switch. With the screen off it is dark, unless "With screen off" is "Keep lit": then the panel sleeps and the backlight stays on behind it, which costs battery. At low screen brightness the LED can flicker for the same reason.
+The LED shares its power supply with the display backlight. While an LED effect is active, the backlight stays at full brightness, including the dark parts of blinks and breathing. This prevents the dimmer from interrupting LED power. Your selected display brightness returns when the effect ends or LEDs are disabled. With the screen off, the LED is dark unless "With screen off" is "Keep lit": the panel then sleeps with the backlight on behind it. Keeping this supply on costs battery.
 
 **Alerts.** Filtered alerts still go to Notifications, without a toast, sound or wake. During do not disturb and quiet hours, alerts show a toast but make no sound, do not wake the screen and do not flash the LED. "Remind while waiting" chimes again while an agent waits for approval. The daemon sends the turn length with each finished-turn alert, so "Turns over 2 min" skips quick replies.
 
@@ -297,6 +299,28 @@ thronectl say "Build failed on main"
 
 **Host settings.** Settings, Network, Host settings edits the daemon's own config from the device. The groups follow `config.json`: general, network, projects, Paseo, voice, harnesses and keys. Harnesses lists each CLI as ready, missing or off. Open one to turn it off, rename it, change its command or arguments, or add your own. Keys lists API keys and other variables from `~/.config/thronectl/env`. They show masked, never in full. Enter replaces one, and an empty value removes it. Port, bind and discovery apply after "Restart daemon", which works when the daemon runs as a login service (`thronectl install`). With `allowShell` set to `false`, host settings are read-only on the device.
 
+## Bluetooth
+
+Bluetooth LE connects the device to the daemon when they are not on the same Wi-Fi network. For example, the laptop runs in your backpack and the Cardputer is in your hand.
+
+1. Pair once. Use Wi-Fi (see Pair), or open Settings, Network, Pair over Bluetooth on the device. That opens a pairing window for 2 minutes. Keep the device near the host, run `thronectl pair` and accept the code.
+2. On the device, turn on Settings, Network, Bluetooth. If Bluetooth was off at boot, accept the restart prompt. Pair over Bluetooth also offers this restart and opens its 2-minute window after boot. Once Bluetooth is on at boot, you can turn it off and back on without another restart.
+3. When the device has no link, it advertises. A daemon in range that knows the device connects in a few seconds, with no prompt on either side.
+
+You do not pair in the operating system's Bluetooth settings. The thronectl handshake and AES-GCM encryption run over Bluetooth the same as over Wi-Fi. A device refuses an unknown host unless its pairing window is open. The device does not advertise while it has a Wi-Fi link or is connecting to one.
+
+The status bar shows the Bluetooth rune while Bluetooth is on. It is dim while the device waits, amber during the pairing window, and the accent color when the link runs over Bluetooth. A host that you paired over Bluetooth has no IP address. To use it over Wi-Fi too, select it once in Hosts when both are on the same network.
+
+What the host needs:
+
+- The daemon uses `@stoprocent/noble`, an optional dependency that `npm install` adds. It runs in a helper process, so a Bluetooth fault cannot stop the daemon. If the module or an adapter is missing, the daemon runs without Bluetooth and logs why.
+- macOS: the app that runs the daemon needs Bluetooth access (System Settings, Privacy & Security, Bluetooth). If the log says that macOS stopped the Bluetooth helper, add Terminal there, or the `node` binary for the login service.
+- Linux: BlueZ with `bluetoothd` running. The daemon uses BlueZ over D-Bus, so it needs no root.
+
+Limits: Bluetooth is slower than Wi-Fi. Voice replies need about 32 KB/s and can stutter at long range. Firmware updates over Bluetooth take longer. Bluetooth starts only when at least 90 KB of heap is free, and shuts down if initialization leaves less than 32 KB. These thresholds are estimates; heap use and throughput still need hardware measurements. Bluetooth costs battery while it is on.
+
+Status: this release was tested with a simulated radio on both sides (the daemon's helper process and the firmware's NimBLE code). It was not tested on real Bluetooth hardware.
+
 ## Configuration
 
 `~/.config/thronectl/config.json` (or `$THRONECTL_HOME/config.json`). `thronectl config` prints it. `thronectl config get <key>` and `thronectl config set <key> <value>` read and change one value, and `set` tells a running daemon to reload. Restart the daemon after you change `port` or `bind`.
@@ -312,6 +336,7 @@ thronectl say "Build failed on main"
 | `projectRoots` | `~/workspace`, `~/code`, `~/Developer`, ... | Folders scanned for git repos |
 | `projects` | `[]` | Extra folders to pin in the project list |
 | `paseo.enabled` | `"auto"` | Use the Paseo CLI when it is installed |
+| `ble.enabled` | `"auto"` | Bluetooth LE link: `auto` uses it when the host has an adapter, `true` also logs a warning when it cannot start, `false` turns it off |
 | `voice.stt.provider` | `"auto"` | `local`, `openai`, `groq`, `command`, `off` |
 | `voice.tts.provider` | `"auto"` | `local`, `say`, `espeak`, `piper`, `openai`, `elevenlabs`, `command`, `off` |
 | `voice.local.enabled` | `true` | `auto` tries local voice first |
@@ -350,6 +375,8 @@ docs/       Protocol spec and screenshots
 
 - Daemon tests: `cd daemon && npm test`. They include an end-to-end run with a simulated device.
 - Simulated device REPL: `thronectl sim`.
+- Bluetooth HAL check: `firmware/tools/blecheck/run.sh` builds `src/hal/ble.cpp` for the host against a fake NimBLE. It checks advertising, the credit window, buffer wrap and reconnects under AddressSanitizer.
+- LED output check: `bash firmware/tools/ledcheck/run.sh` checks shared power, color restore, GRB order and pulse timings under AddressSanitizer and UBSan.
 - Firmware build: `cd firmware && pio run`. To make the release image: `tools/merge.sh`.
 - Screen snapshots without hardware: `firmware/tools/snapshot/build.sh`, then run the binary it prints with an output folder. It renders every screen to PNG with mock data.
 - Key fuzzer: `firmware/tools/keyfuzz/run.sh [steps] [seed]` runs the real app loop under AddressSanitizer. It sends random keys, link and Wi-Fi changes, and firmware offers and chunks. It models the device clock (handlers run after the loop reads `millis()`) and fails if a key press leaves the screen off.
@@ -357,10 +384,10 @@ docs/       Protocol spec and screenshots
 
 ## Hardware notes
 
-The full pin map, part notes and photos are in [docs/hardware](docs/hardware/README.md).
+The full pin map, part notes and photos are in [docs/hardware](docs/hardware/README.md). Use the [reference index](docs/INDEX.md) for the LED power and timing decisions, toolchain versions and external datasheets before changing those drivers.
 
 - Cardputer ADV: ESP32-S3FN8 (8 MB flash, no PSRAM), 240x135 ST7789V2, TCA8418 keyboard, ES8311 codec with speaker and mic, RGB LED on GPIO 21, G0 button.
-- M5Unified cannot drive the LED on this core (its RMT bus is a stub before ESP-IDF 5), so the firmware sends the WS2812 frames itself.
+- M5Unified cannot drive the LED on this core (its RMT bus is a stub before ESP-IDF 5), so the firmware uses the Arduino RMT driver with WS2812B-2020 timings.
 - The charger's status pins are not wired. The device counts as charging when a USB host is attached or the battery voltage keeps rising. The battery percent comes from an averaged voltage and a LiPo curve.
 - Power off is deep sleep: press G0 to wake it. The side switch is the real off.
 - The speaker and the mic share one I2S bus, so playback stops while you talk.

@@ -50,10 +50,7 @@ void SystemHal::loop(uint32_t now) {
 }
 
 void SystemHal::setBrightness(uint8_t b) {
-  if (b == brightness_) return;
-  brightness_ = b;
-  M5.Display.setBrightness(b);
-  ledAt_ = 0;  // the LED runs off the backlight switch, so it may have lost its color
+  led_.setBrightness(b);
 }
 
 void SystemHal::setPanelSleep(bool asleep) {
@@ -64,7 +61,7 @@ void SystemHal::setPanelSleep(bool asleep) {
     M5.Display.wakeup();
     delay(5);  // the ST7789 takes 5 ms after sleep out before it accepts pixels
   }
-  brightness_ = -1;
+  led_.invalidate();
 }
 
 void SystemHal::setRotationFlipped(bool flipped) {
@@ -74,18 +71,8 @@ void SystemHal::setRotationFlipped(bool flipped) {
   M5.Display.setRotation(r);
 }
 
-// The StampS3A WS2812 on GPIO 21. M5.Led cannot drive it here: on ESP-IDF 4.4 its RMT bus
-// is an empty stub, so the core's own RMT writer sends the frame instead.
-static constexpr uint8_t LED_PIN = 21;
-
-void SystemHal::setLed(Rgb c) {
-  // Resend now and then: the LED shares the backlight supply and comes back dark after a power gap.
-  uint32_t now = millis();
-  if (c == led_ && ledAt_ && now - ledAt_ < 100) return;
-  led_ = c;
-  ledAt_ = now | 1;
-  neopixelWrite(LED_PIN, c.r, c.g, c.b);
-}
+void SystemHal::setLed(Rgb c) { led_.setColor(c); }
+void SystemHal::setLedPower(bool powered) { led_.setPower(powered); }
 
 void SystemHal::setCpuMhz(uint16_t mhz) {
   // 240, 160 and 80 MHz keep Wi-Fi running; the crystal speeds below 80 MHz stop it.
@@ -182,6 +169,12 @@ void NvsStore::save(const char* key, const std::string& value) {
   if (!p.begin(NS, false)) return;
   p.putBytes(key, value.data(), value.size());
   p.end();
+}
+
+bool NvsStore::bluetoothAtBoot() {
+  NvsStore n;
+  std::string cfg = n.load("cfg");
+  return cfg.find("\"bluetooth\":true") != std::string::npos || cfg.find("\"blePairAtBoot\":true") != std::string::npos;
 }
 
 void NvsStore::wipe() {

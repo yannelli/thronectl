@@ -20,7 +20,7 @@ port=$((20000 + RANDOM % 20000))
 export THRONECTL_HOME="$work/home"
 mkdir -p "$THRONECTL_HOME"
 cat > "$THRONECTL_HOME/config.json" <<EOF
-{"port": $port, "bind": "127.0.0.1", "discovery": false, "paseo": {"enabled": false},
+{"port": $port, "bind": "127.0.0.1", "discovery": false, "paseo": {"enabled": false}, "ble": {"enabled": false},
  "harness": {"echo": {"bin": "/bin/sh", "args": ["-c", "echo READY \$0; while read l; do echo got \$l; done"]}}}
 EOF
 node "$repo/daemon/dist/cli.js" daemon > "$work/daemon.log" 2>&1 &

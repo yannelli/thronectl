@@ -15,6 +15,16 @@ struct HostInfo {
 
 using RpcCallback = std::function<void(bool ok, JsonVariantConst result, const char* err)>;
 
+/** A byte pipe other than TCP (Bluetooth). The radio fills it; the link reads and writes it from its loop. */
+class LinkPipe {
+ public:
+  virtual ~LinkPipe() {}
+  virtual bool isOpen() const = 0;
+  virtual size_t write(const uint8_t* data, size_t len) = 0;  // bytes taken; fewer while the radio is busy
+  virtual size_t read(uint8_t* data, size_t len) = 0;
+  virtual void close() = 0;
+};
+
 class LinkApi {
  public:
   virtual ~LinkApi() {}
@@ -29,6 +39,9 @@ class LinkApi {
   virtual uint32_t call(const char* method, JsonDocument& params, RpcCallback cb, uint32_t timeoutMs = 20000) = 0;
   virtual bool sendMic(const int16_t* pcm, size_t samples) = 0;
   virtual uint32_t rttMs() const = 0;
+  virtual bool bluetooth() const { return false; }  // the link runs over Bluetooth, not Wi-Fi
+  /** Runs the handshake over a pipe a host opened. Unknown hosts are refused unless allowNew. */
+  virtual void attach(LinkPipe* pipe, bool allowNew) { if (pipe) pipe->close(); }
 
   uint32_t call(const char* method, RpcCallback cb) {
     JsonDocument d;
@@ -105,6 +118,8 @@ class SystemApi {
   virtual void setPanelSleep(bool asleep) {}
   virtual void setRotationFlipped(bool flipped) = 0;
   virtual void setLed(Rgb c) = 0;
+  /** Holds the shared backlight supply steady for an LED effect, including its dark phases. */
+  virtual void setLedPower(bool powered) {}
   virtual void setCpuMhz(uint16_t mhz) = 0;
   virtual uint32_t freeHeap() const = 0;
   virtual uint32_t minFreeHeap() const = 0;
@@ -162,12 +177,29 @@ class OtaApi {
   virtual bool sdFormat() { return false; }
 };
 
+/** Bluetooth LE peripheral: hosts nearby connect to it (the device never scans). */
+class BleApi {
+ public:
+  virtual ~BleApi() {}
+  virtual bool begin() = 0;  // false when the stack cannot start; error() says why
+  virtual void end() = 0;  // stops the stack and gives its memory back
+  virtual bool started() const = 0;
+  virtual void advertise(bool on, bool pairing) = 0;
+  /** A host connected and subscribed. Returns its pipe once; the caller hands it to the link. */
+  virtual LinkPipe* accepted() = 0;
+  virtual bool hostConnected() const = 0;
+  virtual const std::string& error() const = 0;
+  /** True when the stack cannot start before a restart: the controller's memory was freed at boot. */
+  virtual bool needsRestart() const { return false; }
+};
+
 struct Services {
   LinkApi* link = nullptr;
   NetApi* net = nullptr;
   AudioApi* audio = nullptr;
   SystemApi* sys = nullptr;
   OtaApi* ota = nullptr;
+  BleApi* ble = nullptr;  // null when the build has no Bluetooth
 };
 
 Services& svc();

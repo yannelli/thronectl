@@ -56,6 +56,8 @@ struct Settings {
   std::vector<HostEntry> hosts;
   std::string defaultHost;
   bool autoConnect = true;
+  bool bluetooth = false;  // paired hosts nearby can connect over Bluetooth LE
+  bool blePairAtBoot = false;  // open the Bluetooth pairing window after the next restart
   // device
   std::string sdDir = "/thronectl";  // last folder picked for the settings backup
   // agents

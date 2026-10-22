@@ -46,6 +46,21 @@ class MockLink : public LinkApi {
   }
   bool sendMic(const int16_t*, size_t) override { return true; }
   uint32_t rttMs() const override { return 23; }
+  bool bt = false;
+  bool bluetooth() const override { return bt; }
+};
+
+class MockBle : public BleApi {
+ public:
+  bool on = false;
+  std::string err;
+  bool begin() override { return on = true; }
+  void end() override { on = false; }
+  bool started() const override { return on; }
+  void advertise(bool, bool) override {}
+  LinkPipe* accepted() override { return nullptr; }
+  bool hostConnected() const override { return false; }
+  const std::string& error() const override { return err; }
 };
 
 class MockNet : public NetApi {
@@ -138,6 +153,7 @@ class MockOta : public OtaApi {
 };
 
 static MockLink link_;
+static MockBle ble_;
 static MockOta ota_;
 static MockNet net_;
 static MockAudio audio_;
@@ -352,6 +368,15 @@ static void shots() {
   shot("settings_led");
   ui().handleKey(key(K_ENTER));
   shot("settings_led_standby");
+  ui().home();
+  svc().ble = &ble_;
+  settings().bluetooth = true;
+  ble_.on = link_.bt = true;
+  ui().push(makeSettingsCategory(5, 0));
+  shot("settings_bluetooth");
+  settings().bluetooth = false;
+  ble_.on = link_.bt = false;
+  svc().ble = nullptr;
   ui().home();
   ui().push(makeHostConfig("", "Host settings"));
   shot("host_settings");

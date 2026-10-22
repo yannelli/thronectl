@@ -20,6 +20,7 @@ import { cmdFlash, cmdUpdate } from "./update.js";
 import { installLocalVoice, LOCAL_MODELS, localModel, localModelIds, localVoiceStatus, resolveModel, type InstallProgress } from "./voice/local/models.js";
 import { describeStt } from "./voice/stt.js";
 import { describeTts } from "./voice/tts.js";
+import { bluetoothUnavailable } from "./ble/radio.js";
 
 const HELP = `thronectl ${VERSION}: command your coding agents from a Cardputer
 
@@ -169,6 +170,8 @@ async function cmdDoctor(): Promise<void> {
   for (const line of localVoiceLines(cfg)) console.log(`  ${line}`);
   console.log(`${bold("Shell access:")} ${cfg.allowShell ? `enabled (${cfg.shell})` : "disabled"}`);
   console.log(`${bold("Terminals:")} ${ptyStatus()}`);
+  const noBle = cfg.ble.enabled === false ? "off (ble.enabled is false)" : bluetoothUnavailable();
+  console.log(`${bold("Bluetooth:")} ${noBle ? dim(noBle) : green("available")}`);
   const running = await controlRequest("status").then(() => true, () => false);
   console.log(`${bold("Daemon:")} ${running ? green("running") : "not running (thronectl daemon or thronectl install)"}`);
 }

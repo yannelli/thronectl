@@ -8,6 +8,7 @@ import { generateKeyPair } from "../src/crypto.js";
 import { Conn } from "../src/session.js";
 import { SimDevice } from "../src/sim.js";
 import { encodeWav } from "../src/voice/wav.js";
+import { blePipe, fakeRadio } from "../src/ble/pipe.js";
 import type { Daemon as DaemonT } from "../src/server.js";
 
 const home = mkdtempSync(join(tmpdir(), "thronectl-test-"));
@@ -45,6 +46,7 @@ before(async () => {
   daemon.cfg.bind = "127.0.0.1";
   daemon.cfg.discovery = false;
   daemon.cfg.paseo.enabled = false;
+  daemon.cfg.ble.enabled = false;
   daemon.cfg.projectRoots = [];
   daemon.cfg.shell = "/bin/sh";
   daemon.cfg.harness = {
@@ -280,5 +282,28 @@ test("speech streams to the device at playback pace and the reply comes before t
   assert.ok(took >= 2400, `paced to playback, not sent at once (${took} ms)`);
   assert.deepEqual(events, ["start", "end"]);
   daemon.cfg.voice.tts = saved;
+  dev.close();
+});
+
+test("a device paired over Wi-Fi connects over a Bluetooth pipe without a new prompt", async () => {
+  const kp = generateKeyPair();
+  const known = new Map<string, string>();
+  const wifi = new SimDevice(kp, "Cardputer-BLE", known);
+  await wifi.connect("127.0.0.1", port);
+  wifi.close();
+  const [hostEnd, devEnd] = fakeRadio(20);
+  const served = daemon.serve(blePipe(hostEnd, "Bluetooth"), "Bluetooth");
+  const dev = new SimDevice(kp, "Cardputer-BLE", known);
+  const states: string[] = [];
+  dev.onAuth = (st) => states.push(st);
+  await dev.attach(blePipe(devEnd, "host"));
+  await served;
+  assert.deepEqual(states, ["ok"], "no pairing prompt for a known device");
+  const { groups } = await dev.call<{ groups: unknown[] }>("config.groups");
+  assert.ok(groups.length > 3, "a reply of many packets arrives whole");
+  const name = daemon.cfg.name;
+  await dev.call("config.set", { key: "name", value: "N".repeat(2000) });
+  assert.equal(daemon.cfg.name.length, 2000, "a request of many packets arrives whole");
+  daemon.cfg.name = name;
   dev.close();
 });

@@ -1,4 +1,4 @@
-import type { Socket } from "node:net";
+import type { Writable } from "node:stream";
 
 export const MAX_FRAME = 65536;
 
@@ -32,6 +32,6 @@ export function encodeFrame(payload: Buffer): Buffer {
   return Buffer.concat([head, payload]);
 }
 
-export function writeFrame(sock: Socket, payload: Buffer): boolean {
+export function writeFrame(sock: Writable, payload: Buffer): boolean {
   return sock.write(encodeFrame(payload));
 }

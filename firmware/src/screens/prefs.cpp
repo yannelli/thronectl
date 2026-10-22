@@ -88,6 +88,19 @@ void danger(const char* title, const char* msg, std::function<void()> fn) {
   ui().confirm(title, msg, [fn](bool yes) { if (yes) fn(); });
 }
 
+/** Offers a restart when Bluetooth was off at boot. Returns true when it did. */
+bool bluetoothRestart(bool pair) {
+  if (!svc().ble || !svc().ble->needsRestart()) return false;
+  const char* msg = pair ? "Bluetooth starts after a restart. The pairing window opens then." : "Bluetooth starts after a restart.";
+  ui().confirm("Restart now?", msg, [pair](bool yes) {
+    if (!yes) return;
+    settings().blePairAtBoot = pair;
+    settingsSave();
+    svc().sys->reboot();
+  });
+  return true;
+}
+
 /** Applies a whole new Settings and rebuilds the stack, since sizes and themes may change. */
 void adopt(const Settings& next, int sel) {
   settings() = next;
@@ -259,6 +272,14 @@ std::vector<Item> category(int idx) {
       v.push_back(action("Hosts and pairing", [] { ui().push(makeHosts()); }));
       v.push_back(action("Host settings", [] { ui().push(makeHostConfig("", "Host settings")); }, "edit the daemon"));
       v.push_back(toggle("Auto-connect", s.autoConnect));
+      if (svc().ble) {
+        v.push_back(toggle("Bluetooth", s.bluetooth, [&s] { if (s.bluetooth) bluetoothRestart(false); }));
+        v.push_back(action("Pair over Bluetooth", [] {
+          if (bluetoothRestart(true)) return;
+          app().blePair();
+          ui().toast("info", "Pairing over Bluetooth", "For 2 minutes. Keep the device near the host, then accept the code there.", 6000);
+        }, "2 minutes"));
+      }
       v.push_back(text("Device name", s.deviceName, "Shown on the host when pairing"));
       v.push_back(choice("Time zone", s.tz, TZ_NAMES, [&s] { if (s.tz) svc().sys->setTimezone(TZ_POSIX[s.tz]); }));
       v.push_back(action("Disconnect", [] { app().manualDisconnect(); ui().toast("info", "Offline"); }));

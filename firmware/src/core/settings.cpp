@@ -139,7 +139,7 @@ void Settings::forgetWifi(const std::string& ssid) {
   X(tz) X(autoConnect) X(confirmKill) X(attachAfterCreate) X(showExited) X(statsRate) X(cpuMhz)    \
   X(repeatDelay) X(repeatRate) X(dashCycle) \
   X(cpuSave) X(wifiSave) X(statsDim) X(statsOff) X(dimLevel) X(lowBattSave) X(battAutoOff) X(alertVol)    \
-  X(voiceVol) X(muted) X(dnd) X(quietHours) X(notifyDone) X(notifyAttn) X(notifyErr) X(remindWaiting) X(termAwake) X(ledQuiet) X(spaceTalk) X(simpleMode) X(ledScreenOff)
+  X(voiceVol) X(muted) X(dnd) X(quietHours) X(notifyDone) X(notifyAttn) X(notifyErr) X(remindWaiting) X(termAwake) X(ledQuiet) X(spaceTalk) X(simpleMode) X(ledScreenOff) X(bluetooth) X(blePairAtBoot)
 
 #define STR_FIELDS(X) X(ttsVoice) X(deviceName) X(defaultHost) X(lastHarness) X(lastProject) X(lastMode) X(sdDir)
 

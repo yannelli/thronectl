@@ -260,6 +260,15 @@ void drawStatusBar(Canvas& c) {
     x -= 14;
     gfx::wifi(c, x, iy, s.net->rssi(), s.net->wifiState() == WifiState::Connected, t.fg, t.panel2);
   }
+  if (s.ble && s.ble->started()) {  // the Bluetooth rune: accent when linked, warn while pairing
+    x -= 8;
+    uint16_t col = ls == LinkState::Ready && s.link->bluetooth() ? t.accent : app().blePairing(nowMs()) ? t.warn : t.dim;
+    c.drawLine(x + 3, iy, x + 3, iy + 8, col);
+    c.drawLine(x + 3, iy, x + 5, iy + 2, col);
+    c.drawLine(x + 5, iy + 2, x + 1, iy + 6, col);
+    c.drawLine(x + 3, iy + 8, x + 5, iy + 6, col);
+    c.drawLine(x + 5, iy + 6, x + 1, iy + 2, col);
+  }
   if (settings().muted) {
     x -= 10;
     c.fillRect(x, mid - 2, 2, 4, t.dim);

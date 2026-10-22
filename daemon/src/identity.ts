@@ -43,6 +43,10 @@ export class DeviceStore {
     return [...this.devices];
   }
 
+  findById(id: string): TrustedDevice | undefined {
+    return this.devices.find((d) => d.id === id);
+  }
+
   findByKey(pk: Buffer): TrustedDevice | undefined {
     const b64 = pk.toString("base64");
     return this.devices.find((d) => d.pk === b64);

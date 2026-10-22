@@ -1,6 +1,6 @@
 {
   "name": "thronectl",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Host daemon and CLI for the thronectl Cardputer ADV firmware",
   "type": "module",
   "license": "MIT",
@@ -28,6 +28,8 @@
     "typescript": "^5.9.3"
   },
   "optionalDependencies": {
+    "@stoprocent/noble": "2.8.0",
+    "dbus-next": "0.10.2",
     "sherpa-onnx-node": "1.12.28"
   }
 }

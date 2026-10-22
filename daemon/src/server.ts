@@ -14,7 +14,9 @@ import { formatCode, PairingBroker, type PairRequest } from "./pairing.js";
 import { VERSION } from "./paths.js";
 import { DeviceSession, type HostInfo } from "./rpc.js";
 import { restartService, serviceInstalled } from "./service.js";
-import { Conn, serverHandshake } from "./session.js";
+import { Conn, serverHandshake, type Stream } from "./session.js";
+import { BleManager } from "./ble/manager.js";
+import { loadRadio } from "./ble/radio.js";
 import { StatsSampler, type Stats } from "./stats.js";
 import { describeStt } from "./voice/stt.js";
 import { describeTts } from "./voice/tts.js";
@@ -37,6 +39,7 @@ export class Daemon {
   private recent: string[] = [];
   private tcp?: Server;
   private udp?: UdpSocket;
+  private ble?: BleManager;
   private control?: Server;
   private statsTimer?: NodeJS.Timeout;
   private sampling = false;
@@ -72,6 +75,7 @@ export class Daemon {
       this.udp = startDiscovery(this.cfg.port, () => ({ t: "throne", v: 1, id: this.identity.id, name: this.cfg.name, port: this.cfg.port, os: platform() }));
     }
     this.control = startControlServer(this.controlHandlers(), { "pair.watch": (s) => this.watchPairing(s) });
+    void this.startBle();
     this.agents.startPolling();
     this.statsTimer = setInterval(() => void this.sampleStats(), STATS_TICK_MS);
     void this.sampleStats();
@@ -86,6 +90,31 @@ export class Daemon {
     this.control?.close();
     this.agents.shutdown();
     stopLocalWorker();
+    void this.ble?.stop();
+  }
+
+  /** Scans for paired devices nearby when the host has Bluetooth. Without it the daemon runs as before. */
+  private async startBle(): Promise<void> {
+    const want = this.cfg.ble.enabled;
+    if (want === false) return;
+    const radio = await loadRadio();
+    if ("error" in radio) {
+      if (want === true) log.warn(`Bluetooth is on in the config but cannot start: ${radio.error}`);
+      else log.info(`Bluetooth off: ${radio.error}`);
+      return;
+    }
+    this.ble = new BleManager(radio.radio, {
+      known: (id) => !!this.devices.findById(id),
+      connected: (id) => [...this.sessions].some((s) => s.device.id === id),
+      serve: (stream, addr) => this.serve(stream, addr),
+    });
+    try {
+      await this.ble.start();
+      log.info("Bluetooth: looking for paired devices nearby");
+    } catch (e) {
+      log.warn("Bluetooth did not start", e);
+      this.ble = undefined;
+    }
   }
 
   /** Samples only when a session is due, so each device gets stats at the rate it set in `sub`. */
@@ -109,9 +138,13 @@ export class Daemon {
   }
 
   private async accept(sock: Socket): Promise<void> {
-    const addr = sock.remoteAddress?.replace(/^::ffff:/, "") ?? "?";
     sock.setNoDelay(true);
     sock.setKeepAlive(true, 15_000);
+    await this.serve(sock, sock.remoteAddress?.replace(/^::ffff:/, "") ?? "?");
+  }
+
+  /** Handshake, pairing and the device session over any byte stream. `addr` is for logs and the pairing prompt. */
+  async serve(sock: Stream, addr: string): Promise<void> {
     const conn = new Conn(sock);
     let hs;
     try {
