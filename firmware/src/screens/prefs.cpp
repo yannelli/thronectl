@@ -94,6 +94,7 @@ bool bluetoothRestart(bool pair) {
   const char* msg = pair ? "Bluetooth starts after a restart. The pairing window opens then." : "Bluetooth starts after a restart.";
   ui().confirm("Restart now?", msg, [pair](bool yes) {
     if (!yes) return;
+    settings().bluetooth = true;
     settings().blePairAtBoot = pair;
     settingsSave();
     svc().sys->reboot();
@@ -247,7 +248,10 @@ std::vector<Item> category(int idx) {
         v.push_back(it);
       }
       v.push_back(action("Reset LED effects", [] {
-        danger("Reset LED effects?", "Every state and alert goes back to its default.", [] { settings().leds = led::allDefaults(); });
+        danger("Reset LED effects?", "Every state and alert goes back to its default.", [] {
+          settings().leds = led::allDefaults();
+          settingsSave();
+        });
       }));
       break;
     case 4: {
@@ -273,7 +277,12 @@ std::vector<Item> category(int idx) {
       v.push_back(action("Host settings", [] { ui().push(makeHostConfig("", "Host settings")); }, "edit the daemon"));
       v.push_back(toggle("Auto-connect", s.autoConnect));
       if (svc().ble) {
-        v.push_back(toggle("Bluetooth", s.bluetooth, [&s] { if (s.bluetooth) bluetoothRestart(false); }));
+        v.push_back(toggle("Bluetooth", s.bluetooth, [&s] {
+          if (s.bluetooth && svc().ble->needsRestart()) {
+            s.bluetooth = false;
+            bluetoothRestart(false);
+          }
+        }));
         v.push_back(action("Pair over Bluetooth", [] {
           if (bluetoothRestart(true)) return;
           app().blePair();
@@ -359,11 +368,11 @@ class Category : public Screen {
     }
     if (e.key != K_ENTER) return false;
     switch (it.kind) {
-      case Item::TOGGLE: it.set(!it.get()); break;
+      case Item::TOGGLE: setValue(it, !it.get()); break;
       case Item::SLIDER: adjust(it, 1); break;
       case Item::CHOICE: {
         Item* p = &it;
-        ui().choose(it.label, it.options(), it.get(), [p](int v) { p->set(v); });
+        ui().choose(it.label, it.options(), it.get(), [p](int v) { setValue(*p, v); });
         break;
       }
       case Item::TEXT: {
@@ -423,16 +432,22 @@ class Category : public Screen {
   }
 
  private:
+  static void setValue(Item& it, int value) {
+    if (it.get() == value) return;
+    it.set(value);
+    settingsSave();
+  }
+
   void adjust(Item& it, int dir) {
-    if (it.kind == Item::TOGGLE) it.set(!it.get());
+    if (it.kind == Item::TOGGLE) setValue(it, !it.get());
     else if (it.kind == Item::SLIDER) {
       int v = it.get() + dir * it.step;
       if (v > it.hi) v = dir > 0 && it.get() == it.hi ? it.lo : it.hi;
       if (v < it.lo) v = it.lo;
-      it.set(v);
+      setValue(it, v);
     } else if (it.kind == Item::CHOICE) {
       int n = (int)it.options().size();
-      if (n) it.set((it.get() + dir + n) % n);
+      if (n) setValue(it, (it.get() + dir + n) % n);
     }
   }
 
@@ -450,7 +465,7 @@ Screen* makeLedSlot(int slot) {
   v.push_back(pick("Speed", l.speed, led::SPEED_NAMES, led::SPEED_COUNT));
   v.push_back(pick("Level", l.level, led::LEVEL_NAMES, led::LEVEL_COUNT));
   if (slot >= LED_FIRST_ALERT) v.push_back(pick("Length", l.length, led::LENGTH_NAMES, led::LENGTH_COUNT));
-  v.push_back(action("Default", [slot] { settings().leds[slot] = led::defaults(slot); }, "reset this one"));
+  v.push_back(action("Default", [slot] { settings().leds[slot] = led::defaults(slot); settingsSave(); }, "reset this one"));
   return new Category(std::string("LED: ") + led::SLOT_NAMES[slot], std::move(v), 0, slot);
 }
 

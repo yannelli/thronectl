@@ -153,6 +153,7 @@ class FuzzAudio : public AudioApi {
 class FuzzSys : public SystemApi {
  public:
   int pct = 46, hour = 1;
+  int reboots = 0;
   bool chg = false, ledPowered = false;
   Rgb ledColor{};
   int batteryPct() const override { return pct; }
@@ -171,7 +172,7 @@ class FuzzSys : public SystemApi {
   bool localTime(int& h, int& m, int& s) const override { h = hour; m = 2; s = 3; return true; }
   void setTimezone(const char*) override {}
   void setTimeFromHost(int64_t) override {}
-  void reboot() override {}
+  void reboot() override { ++reboots; }
   void factoryReset() override { settings() = Settings(); }
   void powerOff() override {}
 };
@@ -189,9 +190,11 @@ class FuzzPipe : public LinkPipe {
 class FuzzBle : public BleApi {
  public:
   bool on = false, adv = false, pairing = false, host = false, fresh = false;
+  bool restartNeeded = false, deterministic = false;
   FuzzPipe pipe;
   std::string err = "no controller";
-  bool begin() override { return on = pick(5) != 0; }
+  bool begin() override { return on = !restartNeeded && (deterministic || pick(5) != 0); }
+  bool needsRestart() const override { return restartNeeded; }
   void end() override { on = adv = host = fresh = false; pipe.close(); }
   bool started() const override { return on; }
   void advertise(bool a, bool p) override { adv = a; pairing = p; }
@@ -308,6 +311,96 @@ static void randomWorld() {
   }
 }
 
+static Settings persistedSettings() {
+  Settings saved;
+  assert(settingsFromJson(saved, store_.load("cfg")));
+  return saved;
+}
+
+static void checkSettingsPersistence() {
+  Settings original = settings();
+  settings().autoConnect = true;
+  settingsSave();
+  ui().home();
+  ui().push(makeSettingsCategory(5, 3));
+  ui().handleKey({K_ENTER});
+  KeyEvent home{'h'};
+  home.opt = true;
+  app().onKey(home);
+  settings().autoConnect = true;
+  settingsLoad();
+  assert(!settings().autoConnect);
+
+  ui().push(makeSettingsCategory(1, 0));
+  uint8_t volume = settings().volume;
+  ui().handleKey({K_RIGHT});
+  assert(persistedSettings().volume == volume + 16);
+  ui().home();
+  settings().keyClick = 0;
+  ui().push(makeSettingsCategory(1, 3));
+  ui().handleKey({K_ENTER});
+  ui().handleKey({K_DOWN});
+  ui().handleKey({K_ENTER});
+  assert(persistedSettings().keyClick == 1);
+  ui().home();
+
+  ble_.restartNeeded = true;
+  ble_.deterministic = true;
+  settings().bluetooth = false;
+  ui().push(makeSettingsCategory(5, 4));
+  ui().handleKey({K_ENTER});
+  assert(ui().top()->isModal() && !settings().bluetooth);
+  ui().handleKey({'n'});
+  assert(!persistedSettings().bluetooth && sys_.reboots == 0);
+  ui().handleKey({K_ENTER});
+  ui().handleKey({'y'});
+  assert(persistedSettings().bluetooth && sys_.reboots == 1);
+  settings() = Settings();
+  settingsLoad();
+  ble_.restartNeeded = false;
+  app().loop(g_now += 16);
+  assert(ble_.started());
+  ui().handleKey({K_ENTER});
+  app().loop(g_now += 16);
+  assert(!ble_.started() && !persistedSettings().bluetooth);
+  ui().home();
+
+  ui().push(makeSettingsCategory(5, 5));
+  ui().handleKey({K_ENTER});
+  assert(persistedSettings().bluetooth && app().blePairing(g_now));
+  app().loop(g_now += 16);
+  app().loop(g_now += 120001);
+  assert(ble_.started() && !app().blePairing(g_now));
+  app().blePair();
+  ui().home();
+  ui().push(makeSettingsCategory(5, 4));
+  ui().handleKey({K_ENTER});
+  app().loop(g_now += 16);
+  assert(!ble_.started() && !app().blePairing(g_now));
+  ui().home();
+
+  ble_.restartNeeded = true;
+  ui().push(makeSettingsCategory(5, 5));
+  ui().handleKey({K_ENTER});
+  ui().handleKey({'y'});
+  assert(persistedSettings().bluetooth && persistedSettings().blePairAtBoot && sys_.reboots == 2);
+  settings() = Settings();
+  settingsLoad();
+  ble_.restartNeeded = false;
+  app().begin();
+  assert(app().blePairing(g_now) && !persistedSettings().blePairAtBoot);
+  app().loop(g_now += 16);
+  assert(ble_.started());
+  settings().bluetooth = false;
+  app().loop(g_now += 16);
+  ble_.deterministic = false;
+  ui().home();
+  settings() = original;
+  settingsSave();
+  app().onKey(home);
+  puts("settings: edits persist; Bluetooth restart, pairing expiry and disable pass");
+}
+
 int main(int argc, char** argv) {
   long steps = argc > 1 ? atol(argv[1]) : 200000;
   rng.seed(argc > 2 ? atoi(argv[2]) : 1);
@@ -343,6 +436,7 @@ int main(int argc, char** argv) {
   app().loop(g_now);
   assert(!sys_.ledPowered && sys_.ledColor == Rgb{});
   settings() = saved;
+  checkSettingsPersistence();
   uint32_t lastFrame = 0;
   UpdatePhase lastPhase = UpdatePhase::Idle;
   long phases[4] = {0};

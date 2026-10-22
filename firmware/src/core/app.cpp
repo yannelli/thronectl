@@ -173,6 +173,10 @@ int App::reconnectIn(uint32_t now) const {
 }
 
 void App::blePair() {
+  if (!settings().bluetooth) {
+    settings().bluetooth = true;
+    settingsSave();
+  }
   pairUntil_ = (nowMs() + 120000) | 1;
   bleFailed_ = false;
 }
@@ -181,6 +185,7 @@ void App::blePair() {
 void App::updateBle(uint32_t now) {
   BleApi* ble = svc().ble;
   if (!ble) return;
+  if (!settings().bluetooth) pairUntil_ = 0;
   bool pairing = blePairing(now);
   if (pairUntil_ && !pairing) pairUntil_ = 0;
   bool want = settings().bluetooth || pairing;

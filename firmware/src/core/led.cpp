@@ -11,9 +11,11 @@ const char* const SLOT_HELP[LED_SLOTS] = {
     "on USB power, nothing else to show", "an agent finished a turn", "approval or input needed",
     "an agent or command failed", "other notices"};
 const char* const FX_NAMES[] = {"Off", "Solid", "Breathe", "Pulse", "Blink", "Double blink",
-                                "Heartbeat", "Strobe", "Flicker", "Rainbow", "Ramp"};
+                                "Heartbeat", "Strobe", "Flicker", "Rainbow", "Ramp",
+                                "Rainbow breath", "Color steps", "Sparkle", "Candle", "Triple blink", "Swell"};
 const char* const COLOR_NAMES[] = {"Default", "Theme accent", "Red", "Orange", "Amber", "Yellow", "Green",
-                                   "Teal", "Cyan", "Blue", "Indigo", "Purple", "Pink", "White"};
+                                   "Teal", "Cyan", "Blue", "Indigo", "Purple", "Pink", "White",
+                                   "Lime", "Mint", "Sky blue", "Violet", "Magenta", "Coral", "Warm white", "Ice white"};
 const char* const SPEED_NAMES[] = {"Slow", "Normal", "Fast", "Very fast"};
 const char* const LEVEL_NAMES[] = {"10%", "25%", "50%", "75%", "100%"};
 const char* const LENGTH_NAMES[] = {"1 cycle", "2 cycles", "3 cycles", "5 cycles", "3 s",
@@ -24,13 +26,21 @@ const int FX_COUNT = COUNT(FX_NAMES), COLOR_COUNT = COUNT(COLOR_NAMES), SPEED_CO
 
 namespace {
 
-enum Fx : uint8_t { OFF, SOLID, BREATHE, PULSE, BLINK, DOUBLE, HEART, STROBE, FLICKER, RAINBOW, RAMP };
+enum Fx : uint8_t {
+  OFF, SOLID, BREATHE, PULSE, BLINK, DOUBLE, HEART, STROBE, FLICKER, RAINBOW, RAMP,
+  RAINBOW_BREATHE, COLOR_STEPS, SPARKLE, CANDLE, TRIPLE, SWELL
+};
 
-const uint32_t PALETTE[] = {0, 0, 0xFF1A1A, 0xFF6A00, 0xFFA800, 0xFFE000, 0x20FF40,
-                            0x00E0A0, 0x00D8FF, 0x2060FF, 0x5030FF, 0xB030FF, 0xFF30A0, 0xFFFFFF};
+// Screen (sRGB) values at full strength, so each name keeps one hue; render() converts them for the LED.
+const uint32_t PALETTE[] = {0, 0, 0xFF0000, 0xFFA000, 0xFFC800, 0xFFFF00, 0x00FF00,
+                            0x00FFB6, 0x00FFFF, 0x0000FF, 0x7000FF, 0xC800FF, 0xFF69B4, 0xFFFFFF,
+                            0x80FF00, 0x98FF98, 0x40BFFF, 0x9800FF, 0xFF00FF, 0xFF7F50, 0xFFD0A0, 0xC0E8FF};
 // Per slot: the color "Default" means, as an index into PALETTE (1 = theme accent).
 const uint8_t SLOT_COLOR[LED_SLOTS] = {1, 8, 4, 2, 6, 6, 4, 2, 9};
-const uint16_t FX_PERIOD[] = {1000, 1000, 3200, 1600, 1000, 1500, 1300, 400, 1000, 5000, 1400};
+const uint16_t FX_PERIOD[] = {1000, 1000, 3200, 1600, 1000, 1500, 1300, 400, 1000, 5000, 1400,
+                              6000, 3600, 1800, 2400, 1800, 2400};
+static_assert(COUNT(PALETTE) == COUNT(COLOR_NAMES), "LED color names and values must match");
+static_assert(COUNT(FX_PERIOD) == COUNT(FX_NAMES), "LED effects and periods must match");
 const float SPEED_K[] = {1.8f, 1.0f, 0.55f, 0.3f};
 const uint8_t LEVELS[] = {26, 64, 128, 191, 255};
 const uint8_t CYCLES[] = {1, 2, 3, 5};
@@ -59,10 +69,10 @@ float noise(uint32_t n) {
   return (float)((n >> 8) & 0xFFFF) / 65535.0f;
 }
 
-float shape(uint8_t fx, float p, uint32_t t) {
+float shape(uint8_t fx, float p, uint32_t t, uint32_t period) {
   switch (fx) {
-    case SOLID: case RAINBOW: return 1;
-    case BREATHE: return 0.04f + 0.96f * (0.5f - 0.5f * cosf(2 * PI_F * p));
+    case SOLID: case RAINBOW: case COLOR_STEPS: return 1;
+    case BREATHE: case RAINBOW_BREATHE: return 0.04f + 0.96f * (0.5f - 0.5f * cosf(2 * PI_F * p));
     case PULSE: return p < 0.12f ? p / 0.12f : expf(-(p - 0.12f) * 5.0f);
     case BLINK: return p < 0.5f ? 1 : 0;
     case DOUBLE: return p < 0.12f || (p >= 0.25f && p < 0.37f) ? 1 : 0;
@@ -74,6 +84,21 @@ float shape(uint8_t fx, float p, uint32_t t) {
       return 0.35f + 0.65f * (noise(step) * (1 - f) + noise(step + 1) * f);
     }
     case RAMP: return p;
+    case SPARKLE: {
+      uint32_t stepMs = period / 6;
+      uint32_t step = t / stepMs;
+      float phase = (float)(t % stepMs) / stepMs;
+      return noise(step) > 0.45f ? bump(phase, 0, 0.35f) : 0.08f;
+    }
+    case CANDLE: {
+      uint32_t stepMs = period / 16;
+      uint32_t step = t / stepMs;
+      float phase = (float)(t % stepMs) / stepMs;
+      phase = phase * phase * (3 - 2 * phase);
+      return 0.55f + 0.45f * (noise(step) * (1 - phase) + noise(step + 1) * phase);
+    }
+    case TRIPLE: return p < 0.10f || (p >= 0.20f && p < 0.30f) || (p >= 0.40f && p < 0.50f) ? 1 : 0;
+    case SWELL: return p < 0.75f ? p / 0.75f : (1 - p) / 0.25f;
     default: return 0;
   }
 }
@@ -127,13 +152,16 @@ Rgb render(const LedSlot& s, int slot, uint32_t t, uint8_t bright) {
   if (fx == OFF || !bright || slot < 0 || slot >= LED_SLOTS) return {};
   uint32_t per = periodMs(s);
   float p = (float)(t % per) / per;
-  float v = shape(fx, p, t);
+  float v = shape(fx, p, t, per);
   int ci = s.color % COLOR_COUNT;
   if (!ci) ci = SLOT_COLOR[slot];
-  Rgb c = fx == RAINBOW ? hue(p) : ci == 1 ? from565(themeColor(slot)) : fromHex(PALETTE[ci]);
+  Rgb c = ci == 1 ? from565(themeColor(slot)) : fromHex(PALETTE[ci]);
+  if (fx == RAINBOW || fx == RAINBOW_BREATHE) c = hue(p);
+  else if (fx == COLOR_STEPS) c = hue(floorf(p * 6) / 6);
   // Squaring the shape evens out how the eye sees the fade; the level and brightness scale it linearly.
+  // The LED is linear and a screen is not: gamma 2.2 makes orange look orange instead of yellow.
   float k = v * v * LEVELS[s.level % LEVEL_COUNT] / 255.0f * bright / 255.0f;
-  auto ch = [k](uint8_t x) { return (uint8_t)(x * k + 0.5f); };
+  auto ch = [k](uint8_t x) { return (uint8_t)(powf(x / 255.0f, 2.2f) * 255 * k + 0.5f); };
   return {ch(c.r), ch(c.g), ch(c.b)};
 }
 

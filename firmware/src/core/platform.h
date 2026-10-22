@@ -34,5 +34,5 @@ inline int HEADER_H = 16;
 inline int LINE_H = 11;  // one line of F::text
 inline int ROW_PAD = 0;  // extra height added to every list row
 
-#define FW_VERSION "0.6.0"
+#define FW_VERSION "0.6.1"
 #define THRONE_PORT 4787

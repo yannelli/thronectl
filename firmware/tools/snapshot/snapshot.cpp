@@ -368,6 +368,17 @@ static void shots() {
   shot("settings_led");
   ui().handleKey(key(K_ENTER));
   shot("settings_led_standby");
+  LedSlot savedLed = s.leds[LED_STANDBY];
+  s.leds[LED_STANDBY].fx = led::FX_COUNT - 6;
+  s.leds[LED_STANDBY].color = led::COLOR_COUNT - 2;
+  shot("settings_led_new");
+  ui().handleKey(key(K_ENTER));
+  shot("settings_led_effects");
+  ui().handleKey(key('`'));
+  ui().handleKey(key('.'));
+  ui().handleKey(key(K_ENTER));
+  shot("settings_led_colors");
+  s.leds[LED_STANDBY] = savedLed;
   ui().home();
   svc().ble = &ble_;
   settings().bluetooth = true;

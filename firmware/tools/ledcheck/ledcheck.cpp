@@ -2,6 +2,12 @@
 #include <M5Cardputer.h>
 #include <esp32-hal-rmt.h>
 #include "hal/led.h"
+#include "core/theme.h"
+
+const Theme& T() {
+  static const Theme theme{"test", 0, 0, 0, 0, 0, 0xf800, 0, 0, 0, 0, 0, 0};
+  return theme;
+}
 
 M5Stub M5;
 static int failures = 0, writes = 0;
@@ -47,6 +53,94 @@ static uint32_t decodedColor() {
   return grb;
 }
 
+static int named(const char* name, const char* const* names, int count) {
+  for (int i = 0; i < count; ++i) if (std::strcmp(name, names[i]) == 0) return i;
+  check(false, name);
+  return 0;
+}
+
+static void checkEffects(LedOutput& output) {
+  const char* oldColors[] = {"Default", "Theme accent", "Red", "Orange", "Amber", "Yellow", "Green",
+                            "Teal", "Cyan", "Blue", "Indigo", "Purple", "Pink", "White"};
+  const char* oldEffects[] = {"Off", "Solid", "Breathe", "Pulse", "Blink", "Double blink",
+                             "Heartbeat", "Strobe", "Flicker", "Rainbow", "Ramp"};
+  bool compatible = true;
+  for (int i = 0; i < 14; ++i) compatible &= std::strcmp(oldColors[i], led::COLOR_NAMES[i]) == 0;
+  for (int i = 0; i < 11; ++i) compatible &= std::strcmp(oldEffects[i], led::FX_NAMES[i]) == 0;
+  check(compatible, "saved color and effect indices retain their names");
+
+  struct ColorCase { const char* name; Rgb rgb; uint32_t grb; };
+  const ColorCase colors[] = {
+    {"Red", {255, 0, 0}, 0x00ff00}, {"Green", {0, 255, 0}, 0xff0000},
+    {"Blue", {0, 0, 255}, 0x0000ff}, {"Yellow", {255, 255, 0}, 0xffff00},
+    {"Cyan", {0, 255, 255}, 0xff00ff}, {"White", {255, 255, 255}, 0xffffff},
+    {"Magenta", {255, 0, 255}, 0x00ffff}, {"Theme accent", {255, 0, 0}, 0x00ff00}
+  };
+  LedSlot slot{1, 0, 1, 4, 1};
+  for (const auto& color : colors) {
+    slot.color = named(color.name, led::COLOR_NAMES, led::COLOR_COUNT);
+    Rgb rendered = led::render(slot, LED_STANDBY, 0, 255);
+    output.setColor(rendered);
+    check(rendered == color.rgb && decodedColor() == color.grb, color.name);
+  }
+  auto at = [&slot](const char* name) {
+    slot.color = named(name, led::COLOR_NAMES, led::COLOR_COUNT);
+    return led::render(slot, LED_STANDBY, 0, 255);
+  };
+  Rgb orange = at("Orange"), amber = at("Amber");
+  check(orange.r == 255 && orange.g > 60 && orange.g < 110 && amber.g > orange.g + 30 && amber.g < 180,
+        "Orange and Amber are gamma corrected, not yellow");
+  bool distinct = true;
+  for (int i = 2; i < led::COLOR_COUNT; ++i)
+    for (int j = i + 1; j < led::COLOR_COUNT; ++j) {
+      slot.color = i;
+      Rgb a = led::render(slot, LED_STANDBY, 0, 255);
+      slot.color = j;
+      Rgb b = led::render(slot, LED_STANDBY, 0, 255);
+      int d = std::abs(a.r - b.r) + std::abs(a.g - b.g) + std::abs(a.b - b.b);
+      if (d < 40) {
+        printf("  too close: %s and %s\n", led::COLOR_NAMES[i], led::COLOR_NAMES[j]);
+        distinct = false;
+      }
+    }
+  check(distinct, "every named color looks different on the LED");
+  const char* addedColors[] = {"Lime", "Mint", "Sky blue", "Violet", "Magenta", "Coral", "Warm white", "Ice white"};
+  for (const char* name : addedColors) {
+    slot.color = named(name, led::COLOR_NAMES, led::COLOR_COUNT);
+    check(!(led::render(slot, LED_STANDBY, 0, 255) == Rgb{}), name);
+  }
+  const char* addedEffects[] = {"Rainbow breath", "Color steps", "Sparkle", "Candle", "Triple blink", "Swell"};
+  slot.color = named("Blue", led::COLOR_NAMES, led::COLOR_COUNT);
+  for (const char* name : addedEffects) {
+    slot.fx = named(name, led::FX_NAMES, led::FX_COUNT);
+    slot.speed = 1;
+    uint32_t period = led::periodMs(slot);
+    Rgb first = led::render(slot, LED_DONE, 0, 128);
+    bool varied = false, valid = true;
+    for (uint32_t t = 0; t < period * 3; t += 7) {
+      Rgb c = led::render(slot, LED_DONE, t, 128);
+      varied |= !(c == first);
+      valid &= c == led::render(slot, LED_DONE, t, 128);
+      valid &= c.r <= 128 && c.g <= 128 && c.b <= 128;
+      valid &= led::render(slot, LED_DONE, t, 0) == Rgb{};
+      if (slot.fx >= 13) valid &= c.r == 0 && c.g == 0;
+    }
+    valid &= led::lengthMs(slot) == period * 2;
+    slot.speed = 0;
+    valid &= led::periodMs(slot) > period;
+    slot.speed = 3;
+    valid &= led::periodMs(slot) < period;
+    check(varied && valid, name);
+  }
+  slot.fx = named("Color steps", led::FX_NAMES, led::FX_COUNT);
+  slot.speed = 1;
+  const Rgb steps[] = {{255, 0, 0}, {255, 255, 0}, {0, 255, 0}, {0, 255, 255}, {0, 0, 255}, {255, 0, 255}};
+  bool stepped = true;
+  for (uint32_t i = 0; i < 6; ++i)
+    stepped &= led::render(slot, LED_DONE, i * led::periodMs(slot) / 6, 255) == steps[i];
+  check(stepped, "Color steps visits six distinct colors");
+}
+
 int main() {
   LedOutput led;
   led.setBrightness(64);
@@ -86,6 +180,7 @@ int main() {
   writeFails = false;
   led.setColor({255, 255, 255});
   check(writes == before + 1 && decodedColor() == 0xffffff, "failed writes are retried");
+  checkEffects(led);
   printf("ledcheck: %d failures\n", failures);
   return failures ? 1 : 0;
 }
