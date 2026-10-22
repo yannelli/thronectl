@@ -15,6 +15,7 @@ class KeyboardHal {
     int8_t x, y;
     bool operator==(const Pos& o) const { return x == o.x && y == o.y; }
   };
+  void scan(uint32_t now, const std::function<void(const KeyEvent&)>& emit);
   bool makeEvent(Pos p, KeyEvent& e) const;
   std::vector<Pos> prev_;
   Pos repeatPos_{-1, -1};
@@ -76,8 +77,9 @@ class SystemHal : public SystemApi {
   bool charging() const override { return chg_; }
   float batteryVolts() const override { return volts_; }
   void setBrightness(uint8_t b) override;
+  void setPanelSleep(bool asleep) override;
   void setRotationFlipped(bool flipped) override;
-  void setLed(uint16_t color565, uint8_t brightness) override;
+  void setLed(Rgb c) override;
   void setCpuMhz(uint16_t mhz) override;
   uint32_t freeHeap() const override;
   uint32_t minFreeHeap() const override;
@@ -94,12 +96,11 @@ class SystemHal : public SystemApi {
 
  private:
   int batt_ = -1;
-  bool chg_ = false;
-  float volts_ = 0;
-  uint32_t battAt_ = 0;
+  bool chg_ = false, rising_ = false, asleep_ = false;
+  float volts_ = 0, trendV_ = 0;
+  uint32_t battAt_ = 0, trendAt_ = 0, ledAt_ = 0;
   int brightness_ = -1, rotation_ = -1;
-  uint16_t ledColor_ = 1;
-  uint8_t ledLevel_ = 1;
+  Rgb led_{1, 1, 1};
 };
 
 /** Settings and keys in NVS. */
@@ -128,16 +129,23 @@ class OtaHal : public OtaApi {
   void closeSd() override;
   bool sdWriteFile(const std::string& path, const std::string& data) override;
   bool sdReadFile(const std::string& path, std::string& out) override;
+  bool sdList(const std::string& dir, std::vector<SdEntry>& out) override;
+  bool sdMkdir(const std::string& path) override;
+  bool sdNeedsFormat() const override { return needsFormat_; }
+  bool sdFormat() override;
 
  private:
   enum class Sink : uint8_t { None, Flash, Sd };
   bool setErr(const std::string& e);
   uint32_t openFail(const std::string& e);
+  bool mount(bool format);
+  bool sdIdle();
+  bool writeOnce(const std::string& path, const std::string& data);
 
   Sink sink_ = Sink::None;
   std::string err_, sha_, sdPath_;
   std::unique_ptr<tcrypto::Sha256> hash_;
   uint32_t written_ = 0;
-  bool spiBegun_ = false, mounted_ = false;
+  bool spiBegun_ = false, mounted_ = false, needsFormat_ = false;
   fs::File in_, out_;
 };

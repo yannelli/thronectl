@@ -30,6 +30,12 @@ export interface AgentInfo {
   last: string;
 }
 
+/** What a waiting agent asks for, for the device's approval card. */
+export interface PendingAsk {
+  tool: string;
+  text: string;
+}
+
 export interface CreateParams {
   harness: string;
   cwd: string;
@@ -65,7 +71,9 @@ export interface AgentBackend extends EventEmitter {
   kill(id: string): Promise<void>;
   tail(id: string, n: number): Promise<string[]>;
   last(id: string): Promise<string>;
-  permit(id: string, allow: boolean): Promise<void>;
+  /** Answers the agent's pending request. A deny can carry a message telling it what to do instead. */
+  permit(id: string, allow: boolean, message?: string): Promise<void>;
+  pending(id: string): Promise<PendingAsk | null>;
   termTarget(id: string): TermTarget;
 }
 

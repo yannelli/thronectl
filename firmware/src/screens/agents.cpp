@@ -1,4 +1,5 @@
 #include "screens.h"
+#include <algorithm>
 #include "../core/app.h"
 #include "../core/gfx.h"
 #include "../core/services.h"
@@ -59,6 +60,11 @@ class AgentList : public Screen {
     if (list_.onKey(e)) return true;
     if (isBack(e)) { ui().pop(); return true; }
     const Agent* a = selected();
+    if (e.plain() && e.key >= '1' && e.key <= '9') {
+      size_t i = e.key - '1';
+      if (i < ids_.size()) ui().push(makeAgent(ids_[i]));
+      return true;
+    }
     switch (e.key) {
       case K_ENTER: if (a) ui().push(makeAgent(a->id)); return true;
       case 'n': ui().push(makeNewAgent("")); return true;
@@ -103,7 +109,7 @@ class AgentList : public Screen {
     if (!svc().link->ready()) {
       gfx::emptyState(c, "Not connected", "Agents appear here once the device is linked to a host.");
     } else if (ids_.empty()) {
-      gfx::emptyState(c, filter_ ? "Nothing here" : "No agents", filter_ ? "Press f to change the filter." : "Press n to start one, or hold G0 and speak a prompt.");
+      gfx::emptyState(c, filter_ ? "Nothing here" : "No agents", filter_ ? "Press f to change the filter." : "Press n to start one, or press space and say a prompt.");
     } else {
       uint32_t now = nowMs();
       list_.draw(c, [&](Canvas& cv, int i, int x, int y, int w, int, bool sel) {
@@ -212,6 +218,18 @@ class AgentDetail : public Screen {
       return true;
     }
     std::string id = id_;
+    if (e.plain() && (e.key == '[' || e.key == ']')) {
+      // Swaps this view for the agent before or after this one in the host list.
+      auto& all = store().agents;
+      for (size_t i = 0; i < all.size(); i++) {
+        if (all[i].id != id_ || all.size() < 2) continue;
+        std::string next = all[(i + (e.key == ']' ? 1 : all.size() - 1)) % all.size()].id;
+        ui().pop();
+        ui().push(makeAgent(next));
+        return true;
+      }
+      return true;
+    }
     switch (e.key) {
       case K_ENTER: case 'p':
         ui().input("Send to " + name, "", true, [id](const std::string& v) { sendPrompt(id, v); });
@@ -259,7 +277,7 @@ class AgentDetail : public Screen {
       std::string info = baseName(a->cwd) + "  " + fmtAge(a->age) + "  " + a->backend;
       gfx::text(c, F::small, x, y + 2, gfx::ellipsize(c, F::small, info, SCREEN_W - x - 4), t.dim);
     }
-    const Font* f = largeText() ? F::small : F::mono;
+    const Font* f = textScale() ? F::small : F::mono;
     int top = y + gfx::height(c, F::small) + 5, lh = gfx::height(c, f) + 1;
     int barH = gfx::height(c, F::text) + 3, bottom = SCREEN_H - HINT_H - (a && a->status == "waiting" ? barH : 0);
     rows_ = (bottom - top - 1) / lh;
@@ -304,12 +322,20 @@ class AgentDetail : public Screen {
       inflight_ = false;
       polled_ = nowMs();
       if (!ok) return;
+      // Keep the newest lines only, each cut to a few rows, so a long log cannot fill the heap.
+      JsonArrayConst all = r["lines"].as<JsonArrayConst>();
+      size_t skip = all.size() > MAX_LINES ? all.size() - MAX_LINES : 0, i = 0;
       raw_.clear();
-      for (JsonVariantConst l : r["lines"].as<JsonArrayConst>()) raw_.push_back(l.as<const char*>() ? l.as<const char*>() : "");
+      for (JsonVariantConst l : all) {
+        if (i++ < skip) continue;
+        const char* s = l.as<const char*>();
+        raw_.emplace_back(s ? s : "", s ? std::min(strlen(s), MAX_LINE_CHARS) : 0);
+      }
       rev_++;
     }));
   }
 
+  static constexpr size_t MAX_LINES = 80, MAX_LINE_CHARS = 320;
   std::string id_;
   std::vector<std::string> raw_, lines_;
   uint32_t rev_ = 0, wrapped_ = 0;

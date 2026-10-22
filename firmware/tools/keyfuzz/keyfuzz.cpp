@@ -139,7 +139,7 @@ class FuzzSys : public SystemApi {
   float batteryVolts() const override { return 3.7f; }
   void setBrightness(uint8_t) override {}
   void setRotationFlipped(bool) override {}
-  void setLed(uint16_t, uint8_t) override {}
+  void setLed(Rgb) override {}
   void setCpuMhz(uint16_t) override {}
   uint32_t freeHeap() const override { return 180000; }
   uint32_t minFreeHeap() const override { return 140000; }
@@ -176,6 +176,19 @@ class FuzzOta : public OtaApi {
     return (int)n;
   }
   void closeSd() override {}
+  bool sdList(const std::string&, std::vector<SdEntry>& out) override {
+    out.clear();
+    for (int i = pick(6); i > 0; i--) out.push_back({"e" + std::to_string(i) + (pick(2) ? ".json" : ""), pick(2) == 0, (uint32_t)pick(9000)});
+    return pick(8);
+  }
+  bool sdMkdir(const std::string&) override { return pick(2); }
+  bool sdWriteFile(const std::string&, const std::string&) override { return pick(2); }
+  bool sdReadFile(const std::string&, std::string& out) override {
+    out = pick(2) ? settingsToJson(settings()) : "{bad";
+    return pick(3);
+  }
+  bool sdNeedsFormat() const override { return launcher; }
+  bool sdFormat() override { return pick(2); }
   bool launcher = false;
 };
 
@@ -246,7 +259,7 @@ int main(int argc, char** argv) {
   c.createSprite(SCREEN_W, SCREEN_H);
   settingsBind(&store_);
   settingsLoad();
-  settings().textSize = (argc > 2 ? atoi(argv[2]) : 1) % 2;
+  settings().textSize = (argc > 2 ? atoi(argv[2]) : 1) % 3;
   svc().link = &link_;
   svc().net = &net_;
   svc().audio = &audio_;

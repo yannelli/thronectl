@@ -19,12 +19,22 @@ void Voice::hide() {
 }
 
 void Voice::pttDown() {
-  Services& s = svc();
   if (st_ == St::Rec && settings().pttMode == 1) {
     stopRecording();
     return;
   }
+  if (st_ == St::Idle) start();
+}
+
+void Voice::toggle() {
+  if (st_ == St::Rec) return stopRecording();
   if (st_ != St::Idle) return;
+  start();
+  byKey_ = true;
+}
+
+void Voice::start() {
+  Services& s = svc();
   if (!s.link || !s.link->ready()) {
     ui().toast("error", "Not connected", "Voice needs a paired host");
     s.audio->chime(CH_FAIL);
@@ -42,6 +52,7 @@ void Voice::pttDown() {
     return;
   }
   st_ = St::Rec;
+  byKey_ = false;
   t0_ = nowMs();
   samples_ = 0;
   text_.clear();
@@ -125,6 +136,7 @@ bool Voice::onKey(const KeyEvent& e) {
     return true;
   }
   if (isBack(e)) cancel();
+  else if (e.key == ' ' || e.key == K_ENTER) stopRecording();
   return true;
 }
 
@@ -149,7 +161,7 @@ void Voice::draw(Canvas& c) {
       int bh = 2 + (int)(v * 26);
       c.fillRoundRect(x + 56 + i * 6, y + 62 - bh / 2, 4, bh, 2, i % 3 ? t.accent : t.accent2);
     }
-    gfx::text(c, F::small, x + w / 2, y + h - 12, settings().pttMode ? "press G0 to send" : "release G0 to send", t.dim, gfx::Datum::top_center);
+    gfx::text(c, F::small, x + w / 2, y + h - 12, byKey_ ? "space or ok sends" : settings().pttMode ? "press G0 or ok to send" : "release G0 to send", t.dim, gfx::Datum::top_center);
   } else if (st_ == St::Wait) {
     gfx::spinner(c, x + 30, y + h / 2, 12, now, t.accent);
     gfx::text(c, F::bold, x + 56, y + h / 2 - 7, "Transcribing", t.fg);

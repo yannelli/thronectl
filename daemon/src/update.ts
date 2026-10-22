@@ -76,7 +76,7 @@ export async function cmdFlash(args: string[]): Promise<void> {
   if (!status) throw new Error("the daemon is not running (thronectl install, or thronectl daemon)");
   let fw: Firmware | undefined;
   if (file) fw = loadFirmware(resolve(file), "file");
-  else fw = findFirmware((s) => console.log(dim(s)));
+  else fw = await findFirmware((s) => console.log(dim(s)));
   if (!fw) {
     if (auto) return console.log(dim("No firmware image found (needs gh for releases, or a build in firmware/dist)."));
     throw new Error("no firmware image found. Pass a file: thronectl flash path/to/thronectl-cardputer-adv-vX.Y.Z.bin");

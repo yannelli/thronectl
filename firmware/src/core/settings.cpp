@@ -7,7 +7,9 @@
 
 OPTS(DIM_OPTS, "Never", "15 s", "30 s", "1 min", "2 min", "5 min");
 OPTS(OFF_OPTS, "Never", "1 min", "2 min", "5 min", "10 min", "30 min");
-OPTS(LED_OPTS, "Off", "Agent status", "Alerts only");
+OPTS(LED_OPTS, "Off", "Status and alerts", "Alerts only");
+OPTS(LED_QUIET_OPTS, "Same", "Dim", "Off");
+OPTS(LED_SCREEN_OFF_OPTS, "LED off", "Keep lit");
 OPTS(CLICK_OPTS, "Off", "Soft", "Loud");
 OPTS(NOTIFY_OPTS, "All", "Attention only", "Off");
 OPTS(SPEAK_OPTS, "Off", "When done", "Done + attention");
@@ -27,7 +29,7 @@ OPTS(REMIND_OPTS, "Off", "Every 1 min", "Every 2 min", "Every 5 min");
 const uint32_t REMIND_MS[] = {0, 60000, 120000, 300000};
 OPTS(PTT_OPTS, "Hold to talk", "Tap to toggle");
 OPTS(TERM_FONT_OPTS, "Small 60x20", "Normal 40x15");
-OPTS(TEXT_SIZE_OPTS, "Small", "Normal");
+OPTS(TEXT_SIZE_OPTS, "Small", "Medium", "Large");
 OPTS(DASH_CYCLE_OPTS, "Off", "10 s", "30 s", "1 min");
 const uint32_t DASH_CYCLE_MS[] = {0, 10000, 30000, 60000};
 OPTS(REPEAT_DELAY_OPTS, "Short", "Medium", "Long");
@@ -135,11 +137,11 @@ void Settings::forgetWifi(const std::string& ssid) {
   X(clock24) X(splash) X(showBattPct) X(ledMode) X(ledBright) X(volume) X(keyClick) X(notifySound) \
   X(startupChime) X(wakeOnNotify) X(toastSecs) X(speakReplies) X(micGain) X(pttMode) X(autoSend)   \
   X(tz) X(autoConnect) X(confirmKill) X(attachAfterCreate) X(showExited) X(statsRate) X(cpuMhz)    \
-  X(repeatDelay) X(repeatRate) X(textSize) X(dashCycle) \
+  X(repeatDelay) X(repeatRate) X(dashCycle) \
   X(cpuSave) X(wifiSave) X(statsDim) X(statsOff) X(dimLevel) X(lowBattSave) X(battAutoOff) X(alertVol)    \
-  X(voiceVol) X(muted) X(dnd) X(quietHours) X(notifyDone) X(notifyAttn) X(notifyErr) X(remindWaiting) X(termAwake)
+  X(voiceVol) X(muted) X(dnd) X(quietHours) X(notifyDone) X(notifyAttn) X(notifyErr) X(remindWaiting) X(termAwake) X(ledQuiet) X(spaceTalk) X(simpleMode) X(ledScreenOff)
 
-#define STR_FIELDS(X) X(ttsVoice) X(deviceName) X(defaultHost) X(lastHarness) X(lastProject) X(lastMode)
+#define STR_FIELDS(X) X(ttsVoice) X(deviceName) X(defaultHost) X(lastHarness) X(lastProject) X(lastMode) X(sdDir)
 
 std::string settingsToJson(const Settings& s) {
   JsonDocument doc;
@@ -149,6 +151,7 @@ std::string settingsToJson(const Settings& s) {
 #define WS(f) doc[#f] = s.f.c_str();
   STR_FIELDS(WS)
 #undef WS
+  doc["textScale"] = s.textSize;
   JsonArray wifi = doc["wifi"].to<JsonArray>();
   for (auto& w : s.wifi) {
     JsonObject o = wifi.add<JsonObject>();
@@ -164,6 +167,11 @@ std::string settingsToJson(const Settings& s) {
     o["os"] = h.os.c_str();
     o["port"] = h.port;
     o["pk"] = toHex(h.pk, 32);
+  }
+  JsonArray led = doc["led"].to<JsonArray>();
+  for (auto& l : s.leds) {
+    JsonArray a = led.add<JsonArray>();
+    for (uint8_t v : {l.fx, l.color, l.speed, l.level, l.length}) a.add(v);
   }
   std::string out;
   serializeJson(doc, out);
@@ -181,6 +189,9 @@ bool settingsFromJson(Settings& s, const std::string& json) {
   if (doc[#f].is<const char*>()) s.f = doc[#f].as<const char*>();
   STR_FIELDS(RS)
 #undef RS
+  // Before 0.4 "textSize" had two steps; its "Normal" is now "Large".
+  if (!doc["textScale"].isNull()) s.textSize = doc["textScale"].as<uint8_t>();
+  else if (!doc["textSize"].isNull()) s.textSize = doc["textSize"].as<uint8_t>() ? 2 : 0;
   s.wifi.clear();
   for (JsonObjectConst o : doc["wifi"].as<JsonArrayConst>()) s.wifi.push_back({o["s"] | "", o["p"] | ""});
   s.hosts.clear();
@@ -193,6 +204,12 @@ bool settingsFromJson(Settings& s, const std::string& json) {
     h.port = o["port"] | THRONE_PORT;
     if (!fromHex(o["pk"] | "", h.pk, 32) || h.id.empty()) continue;
     s.hosts.push_back(h);
+  }
+  JsonArrayConst led = doc["led"].as<JsonArrayConst>();
+  for (size_t i = 0; i < led.size() && i < s.leds.size(); i++) {
+    JsonArrayConst a = led[i].as<JsonArrayConst>();
+    if (a.size() < 5) continue;
+    s.leds[i] = {a[0].as<uint8_t>(), a[1].as<uint8_t>(), a[2].as<uint8_t>(), a[3].as<uint8_t>(), a[4].as<uint8_t>()};
   }
   return true;
 }

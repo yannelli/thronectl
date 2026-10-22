@@ -95,7 +95,7 @@ class MockSys : public SystemApi {
   float batteryVolts() const override { return 3.98f; }
   void setBrightness(uint8_t) override {}
   void setRotationFlipped(bool) override {}
-  void setLed(uint16_t, uint8_t) override {}
+  void setLed(Rgb) override {}
   void setCpuMhz(uint16_t) override {}
   uint32_t freeHeap() const override { return 182000; }
   uint32_t minFreeHeap() const override { return 141000; }
@@ -115,7 +115,7 @@ class MockOta : public OtaApi {
   bool launcher = false, finishOk = true;
   std::string err;
   bool underLauncher() const override { return launcher; }
-  bool sdReady() override { return true; }
+  bool sdReady() override { return !noFat; }
   std::vector<SdImage> sdImages() override {
     return {{"/thronectl-cardputer-adv-v0.2.0.bin", "thronectl-cardputer-adv-v0.2.0.bin", 1248480},
             {"/thronectl/thronectl-cardputer-adv-v0.1.2.bin", "thronectl-cardputer-adv-v0.1.2.bin", 1247904}};
@@ -128,6 +128,13 @@ class MockOta : public OtaApi {
   uint32_t openSd(const std::string&) override { return 1182944; }
   int readSd(uint8_t*, size_t n) override { return (int)n; }
   void closeSd() override {}
+  bool noFat = false;
+  bool sdList(const std::string& dir, std::vector<SdEntry>& out) override {
+    if (dir == "/") out = {{"backups", true}, {"thronectl", true}, {"music", true}, {"notes.json", false, 2100}};
+    else out = {{"old", true}, {"thronectl-settings.json", false, 3872}, {"settings.json", false, 3410}};
+    return true;
+  }
+  bool sdNeedsFormat() const override { return noFat; }
 };
 
 static MockLink link_;
@@ -211,6 +218,7 @@ static void seed() {
   store().addNotice({"done", "refactor billing", "Finished: 6 files changed, tests pass", "d-1", g_now - 60000});
   store().addNotice({"attn", "fix login redirect", "Wants to run: npm test", "a1b2c3", g_now - 20000});
   link_.replies["agent.tail"] = R"J({"lines":["> fix the login redirect loop on /account","","I'll start by finding where the redirect happens.","","Read src/auth/session.ts (142 lines)","Read src/routes/account.tsx (88 lines)","","The loop comes from useSession() returning null while loading,","so the guard redirects before the cookie is read. I'll add a","loading state to the guard.","","Edit src/routes/account.tsx  +6 -2","","Bash(npm test -- auth)","  Allow this command? [y/n]"]})J";
+  link_.replies["agent.pending"] = R"J({"tool":"Bash","text":"npm test -- auth\n\nRuns the auth test suite in src/auth. Claude wants to check that the redirect guard waits for the session to load before it sends the user to /login."})J";
   link_.replies["procs.list"] = R"J({"procs":[{"pid":4127,"name":"node","cpu":88.2,"mem":3.1,"user":"dev"},{"pid":812,"name":"WindowServer","cpu":21.4,"mem":1.2,"user":"_windowserver"},
     {"pid":33021,"name":"claude","cpu":12.9,"mem":2.4,"user":"dev"},{"pid":3301,"name":"Google Chrome Helper (Renderer)","cpu":9.5,"mem":4.8,"user":"dev"},
     {"pid":2210,"name":"codex","cpu":6.1,"mem":1.0,"user":"dev"},{"pid":101,"name":"kernel_task","cpu":4.2,"mem":0.6,"user":"root"},
@@ -324,6 +332,34 @@ static void shots() {
   ui().push(makeSettingsCategory(7, 0));
   shot("settings_power");
   ui().home();
+  ui().push(makeApprovals());
+  shot("approvals");
+  settings().simpleMode = true;
+  ui().home();
+  ui().top()->update(nowMs());
+  shot("simple_home");
+  settings().simpleMode = false;
+  ui().home();
+  ui().top()->update(nowMs());
+  ui().push(makeSettingsCategory(3, 4));
+  shot("settings_led");
+  ui().handleKey(key(K_ENTER));
+  shot("settings_led_standby");
+  ui().home();
+  ui().push(makeSdBrowser(true));
+  shot("sd_backup");
+  ui().home();
+  ui().push(makeSdBrowser(false));
+  shot("sd_restore");
+  ui().home();
+  ota_.noFat = true;
+  ota_.err = "The card has no FAT32 volume (exFAT does not work)";
+  ui().push(makeSdBrowser(true));
+  shot("sd_nofat");
+  ota_.noFat = false;
+  ota_.err.clear();
+  ui().home();
+  ui().home();
   ui().push(makeKeyHelp());
   shot("keyhelp");
   ui().home();
@@ -399,10 +435,11 @@ int main(int argc, char** argv) {
   svc().sys = &sys_;
   svc().ota = &ota_;
   settings().splash = false;
-  applyTextSize(0);
-  shots();
-  applyTextSize(1);
-  suffix = "_n";
-  shots();
+  const char* const SUFFIX[] = {"", "_m", "_l"};
+  for (int size = 0; size < 3; size++) {
+    applyTextSize(size);
+    suffix = SUFFIX[size];
+    shots();
+  }
   return 0;
 }

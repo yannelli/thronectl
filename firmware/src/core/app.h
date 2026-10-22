@@ -42,6 +42,10 @@ class App {
   /** Seconds until the next automatic reconnect, or -1 when none is planned. */
   int reconnectIn(uint32_t now) const;
   void manualDisconnect();
+  /** Plays an alert effect (LED_DONE and up). `force` ignores the LED mode, for tests. */
+  void ledAlert(int slot, bool force = false);
+  /** Loops one slot on the LED while its settings page is open; -1 ends the preview. */
+  void ledPreview(int slot);
 
   /** Receives "term" and "term_exit" events for the open terminal screen. */
   std::function<void(const char* ev, JsonVariantConst d)> termSink;
@@ -52,6 +56,9 @@ class App {
   void handleNotify(JsonVariantConst d);
   void offerUpdate(JsonVariantConst d);
   void updateLed(uint32_t now);
+  int ledStateSlot() const;
+  /** True when the screen-off state keeps the backlight supply on for the LED. */
+  bool ledKeptLit() const;
   void updatePower(uint32_t now);
   void checkBattery(uint32_t now);
   void remindWaiting(uint32_t now);
@@ -62,8 +69,9 @@ class App {
   uint32_t lastActivity_ = 0;
   bool dimmed_ = false, screenOff_ = false, manualOffline_ = false;
   uint32_t nextReconnect_ = 0, backoff_ = 2000;
-  uint32_t ledFlashUntil_ = 0, termAt_ = 0;
-  uint16_t ledFlashColor_ = 0;
+  uint32_t termAt_ = 0, ledAt_ = 0;
+  int alertSlot_ = -1, previewSlot_ = -1;
+  uint32_t alertAt_ = 0, alertLen_ = 0, previewAt_ = 0;
   UpdatePhase updatePhase_ = UpdatePhase::Idle;
   uint32_t powerKey_ = 0, statsMs_ = 0, battAt_ = 0, shutdownAt_ = 0;
   bool lowBatt_ = false, battWarned_ = false;

@@ -1,5 +1,6 @@
 #include "screens.h"
 #include <cmath>
+#include <memory>
 #include "../core/app.h"
 #include "../core/gfx.h"
 #include "../core/services.h"
@@ -21,8 +22,8 @@ const char* stateLabel(LinkState s) {
   }
 }
 
-/** Normal text has a taller value font, so the card grows by 4 px. */
-int gaugeH() { return largeText() ? 48 : 44; }
+/** Large text has a taller value font, so the card grows by 4 px. */
+int gaugeH() { return textScale() == 2 ? 48 : 44; }
 
 void gauge(Canvas& c, int x, int y, int w, const char* label, float frac, const std::string& value, const std::string& sub,
            const char* caption) {
@@ -47,8 +48,20 @@ std::string pct(float v) {
 
 class Home : public Screen {
  public:
-  bool wantsStats() const override { return true; }
+  bool wantsStats() const override { return !simple_; }
+  void onResume() override {
+    if (simple_) simple_->onResume();
+  }
+  bool onVoiceText(const std::string& text) override { return simple_ && simple_->onVoiceText(text); }
+  std::string voiceTarget() const override { return simple_ ? simple_->voiceTarget() : Screen::voiceTarget(); }
+
   void update(uint32_t now) override {
+    // Simple mode swaps the dashboard for the approval queue.
+    if (settings().simpleMode != (bool)simple_) {
+      simple_.reset(settings().simpleMode ? makeApprovals(true) : nullptr);
+      if (simple_) simple_->onEnter();
+    }
+    if (simple_) return simple_->update(now);
     uint32_t every = DASH_CYCLE_MS[settings().dashCycle % 4];
     if (!every || !svc().link->ready()) { flipped_ = now; return; }
     if (elapsedMs(now, flipped_) >= every) {
@@ -58,21 +71,28 @@ class Home : public Screen {
   }
 
   bool onKey(const KeyEvent& e) override {
+    if (simple_ && simple_->onKey(e)) return true;
     flipped_ = nowMs();
+    bool slides = !simple_ && svc().link->ready();
+    if (slides && e.plain() && e.key >= '1' && e.key < '1' + dash::COUNT) {
+      slide_ = e.key - '1';
+      return true;
+    }
     uint16_t nav = navKey(e);
-    if (svc().link->ready() && (nav == K_LEFT || nav == K_RIGHT || e.key == '<' || e.key == '>')) {
+    if (slides && (nav == K_LEFT || nav == K_RIGHT || e.key == '<' || e.key == '>')) {
       int dir = nav == K_RIGHT || e.key == '>' ? 1 : -1;
       slide_ = (slide_ + dir + dash::COUNT) % dash::COUNT;
       return true;
     }
     if (!e.plain() && !e.shift) return false;
-    if (e.key == K_ENTER && slide_ && svc().link->ready()) {
+    if (e.key == K_ENTER && slide_ && slides) {
       static Screen* (*const open[])() = {nullptr, makeProcs, makeProcs, makeWifi, nullptr, makeAbout};
       ui().push(open[slide_] ? open[slide_]() : makeAgents());
       return true;
     }
     switch (e.key) {
       case 'a': case K_ENTER: ui().push(makeAgents()); return true;
+      case 'y': ui().push(makeApprovals()); return true;
       case 'n': ui().push(makeNewAgent("")); return true;
       case 't': ui().push(makeTerminal("", "shell")); return true;
       case 'p': ui().push(makeProcs()); return true;
@@ -87,6 +107,7 @@ class Home : public Screen {
   }
 
   void draw(Canvas& c) override {
+    if (simple_) return simple_->draw(c);
     LinkState ls = svc().link->state();
     if (ls != LinkState::Ready) drawOffline(c, ls);
     else if (slide_) dash::draw(c, slide_);
@@ -99,6 +120,7 @@ class Home : public Screen {
  private:
   int slide_ = 0;
   uint32_t flipped_ = 0;
+  std::unique_ptr<Screen> simple_;
 
   void drawOffline(Canvas& c, LinkState ls) {
     const Theme& t = T();
@@ -146,9 +168,9 @@ class Home : public Screen {
     snprintf(dsub, sizeof dsub, "%.0fG", x.disk[1] - x.disk[0]);
     gauge(c, 161, gy, 76, "DISK", disk, disk >= 0 ? pct(disk * 100) : "--", disk >= 0 ? dsub : "", "free");
 
-    // Normal text has no room for the history strip; the CPU and Network slides show it.
+    // Only small text has room for the history strip; the CPU and Network slides show it.
     int sy = gy + gaugeH() + 3, ay = sy + 4;
-    if (!largeText()) {
+    if (textScale() == 0) {
       c.fillRoundRect(3, sy, 234, 20, 4, t.panel);
       gfx::spark(c, 6, sy + 2, 164, 16, st.memHist, st.histLen, st.histPos, HIST, 100, t.accent2);
       gfx::spark(c, 6, sy + 2, 164, 16, st.cpuHist, st.histLen, st.histPos, HIST, 100, t.accent);
@@ -184,7 +206,7 @@ class Home : public Screen {
       std::string line = top->name + ": " + top->last;
       gfx::text(c, F::small, 4, ay + th + 3, gfx::ellipsize(c, F::small, line, 232), statusColor(top->status));
     } else if (st.agents.empty()) {
-      gfx::text(c, F::small, 4, ay + th + 3, "No agents yet. Press n, or hold G0 and talk.", t.dim);
+      gfx::text(c, F::small, 4, ay + th + 3, "No agents yet. Press n, or space and talk.", t.dim);
     }
   }
 };
@@ -194,20 +216,21 @@ class Home : public Screen {
 Screen* makeHome() { return new Home(); }
 
 void openLauncher() {
-  static const char* const labels[] = {"Agents", "New agent", "Shell", "Processes", "Notifications",
+  static const char* const labels[] = {"Approvals", "Agents", "New agent", "Shell", "Processes", "Notifications",
                                        "Hosts", "Wi-Fi", "Settings", "About"};
-  std::vector<std::string> opts(labels, labels + 9);
+  std::vector<std::string> opts(labels, labels + 10);
   ui().choose("Go to", opts, 0, [](int i) {
     Screen* s = nullptr;
     switch (i) {
-      case 0: s = makeAgents(); break;
-      case 1: s = makeNewAgent(""); break;
-      case 2: s = makeTerminal("", "shell"); break;
-      case 3: s = makeProcs(); break;
-      case 4: s = makeNotices(); break;
-      case 5: s = makeHosts(); break;
-      case 6: s = makeWifi(); break;
-      case 7: s = makeSettings(); break;
+      case 0: s = makeApprovals(); break;
+      case 1: s = makeAgents(); break;
+      case 2: s = makeNewAgent(""); break;
+      case 3: s = makeTerminal("", "shell"); break;
+      case 4: s = makeProcs(); break;
+      case 5: s = makeNotices(); break;
+      case 6: s = makeHosts(); break;
+      case 7: s = makeWifi(); break;
+      case 8: s = makeSettings(); break;
       default: s = makeAbout(); break;
     }
     ui().push(s);

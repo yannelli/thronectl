@@ -40,6 +40,18 @@ bool KeyboardHal::makeEvent(Pos p, KeyEvent& e) const {
 }
 
 void KeyboardHal::poll(uint32_t now, const std::function<void(const KeyEvent&)>& emit) {
+  // M5Cardputer.update() reads one TCA8418 event, but the chip queues up to 10. Read the rest
+  // one at a time, so a fast press and release both reach the diff in scan().
+  scan(now, emit);
+  for (int i = 0; i < 9; i++) {
+    auto before = M5Cardputer.Keyboard.keyList();
+    M5Cardputer.Keyboard.updateKeyList();
+    if (M5Cardputer.Keyboard.keyList() == before) break;
+    scan(now, emit);
+  }
+}
+
+void KeyboardHal::scan(uint32_t now, const std::function<void(const KeyEvent&)>& emit) {
   const auto& list = M5Cardputer.Keyboard.keyList();
   std::vector<Pos> cur;
   fn_ = shift_ = ctrl_ = opt_ = alt_ = false;

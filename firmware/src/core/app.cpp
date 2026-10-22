@@ -35,8 +35,11 @@ void App::applyDisplay() {
   static const uint8_t DIM_DIV[] = {12, 6, 3, 2};
   uint8_t b = s.brightness;
   if (lowBatt_ && b > 96) b = 96;
-  if (screenOff_) b = 0;
+  // The LED is powered through the backlight switch. To keep it lit, the panel sleeps black
+  // with the backlight full on behind it.
+  if (screenOff_) b = ledKeptLit() ? 255 : 0;
   else if (dimmed_) b = b / DIM_DIV[s.dimLevel % 4] < 4 ? 4 : b / DIM_DIV[s.dimLevel % 4];
+  svc().sys->setPanelSleep(screenOff_);
   svc().sys->setBrightness(b);
 }
 
@@ -44,6 +47,11 @@ void App::applySound() {
   const Settings& s = settings();
   svc().audio->setVolume(s.muted ? 0 : s.volume);
   svc().audio->setMix(s.alertVol, s.voiceVol);
+}
+
+bool App::ledKeptLit() const {
+  const Settings& s = settings();
+  return s.ledScreenOff && s.ledMode && !lowBatt_;
 }
 
 bool App::quietNow() const {
@@ -92,8 +100,7 @@ void App::remindWaiting(uint32_t now) {
   remindAt_ = now;
   if (quietNow()) return;
   svc().audio->chime(CH_ATTN);
-  ledFlashColor_ = T().warn;
-  ledFlashUntil_ = now + 2000;
+  ledAlert(LED_ATTN);
 }
 
 void App::activity() {
@@ -105,16 +112,20 @@ void App::activity() {
 }
 
 void App::onKey(const KeyEvent& e) {
+  if (alertSlot_ >= 0 && !alertLen_) alertSlot_ = -1;  // "until a key press" alerts end here
   bool wasOff = screenOff_;
   activity();
   if (wasOff) return;
   if (settings().keyClick) svc().audio->click();
   if (voice.onKey(e)) return;
+  Screen* top = ui().top();
+  if (e.key == ' ' && e.plain() && settings().spaceTalk && top && !top->typing() && !top->isModal()) return voice.toggle();
   if (e.opt && e.key == K_ENTER) return openLauncher();
   if (e.opt && e.isChar()) {
     switch (e.ch()) {
       case 'h': ui().home(); return;
       case 'a': ui().home(); ui().push(makeAgents()); return;
+      case 'y': ui().home(); if (!settings().simpleMode) ui().push(makeApprovals()); return;
       case 'n': ui().push(makeNewAgent("")); return;
       case 't': ui().push(makeTerminal("", "shell")); return;
       case 's': ui().push(makeSettings()); return;
@@ -315,13 +326,11 @@ void App::handleNotify(JsonVariantConst d) {
   if (n.kind == "attn") remindAt_ = n.at;
   if (s.wakeOnNotify && !quiet && (attn || n.kind == "done")) activity();
   ui().toast(n.kind, n.title, n.body);
+  ledAlert(n.kind == "done" ? LED_DONE : n.kind == "attn" ? LED_ATTN : n.kind == "error" ? LED_ERROR : LED_INFO);
   if (quiet) return;
   if (s.notifySound == 0 || (s.notifySound == 1 && attn)) {
     svc().audio->chime(n.kind == "done" ? CH_DONE : n.kind == "attn" ? CH_ATTN : n.kind == "error" ? CH_ERROR : CH_INFO);
   }
-  const Theme& t = T();
-  ledFlashColor_ = n.kind == "done" ? t.ok : attn ? t.warn : t.accent;
-  ledFlashUntil_ = nowMs() + 3000;
   if (!n.agent.empty() && !voice.active()) {
     if (n.kind == "done" && s.speakReplies >= 1) speakAgent(n.agent);
     else if (n.kind == "attn" && s.speakReplies == 2) {
@@ -367,33 +376,68 @@ void App::offerUpdate(JsonVariantConst d) {
   uint32_t size = d["size"] | 0u;
   std::string what = (ver.empty() ? std::string("New firmware") : "Version " + ver) + " from " + from + ". ";
   activity();
+  auto start = [ver, size, sha, toSd](bool yes) {
+    if (!yes) return Updater::reply(false, "declined on the device", toSd ? "sd" : "flash");
+    updater().startLink(ver, size, sha, toSd);
+    ui().push(makeUpdate());
+  };
+  if (d["asked"] | false) return start(true);  // asked for on this device, which already confirmed it
   svc().audio->chime(CH_ATTN);
-  ui().confirm("Update firmware?", what + (toSd ? "Saves to SD for Launcher to install." : "Installs, then restarts."),
-               [ver, size, sha, toSd](bool yes) {
-                 if (!yes) return Updater::reply(false, "declined on the device", toSd ? "sd" : "flash");
-                 updater().startLink(ver, size, sha, toSd);
-                 ui().push(makeUpdate());
-               });
+  ui().confirm("Update firmware?", what + (toSd ? "Saves to SD for Launcher to install." : "Installs, then restarts."), start);
+}
+
+void App::ledAlert(int slot, bool force) {
+  if (slot < LED_FIRST_ALERT || slot >= LED_SLOTS || (!force && !settings().ledMode)) return;
+  // Error outranks attention, which outranks done; info never cuts in on a running alert.
+  static const int RANK[] = {1, 2, 3, 0};
+  if (alertSlot_ >= 0 && RANK[alertSlot_ - LED_FIRST_ALERT] > RANK[slot - LED_FIRST_ALERT]) return;
+  alertSlot_ = slot;
+  alertAt_ = nowMs();
+  alertLen_ = led::lengthMs(settings().leds[slot]);
+}
+
+void App::ledPreview(int slot) {
+  previewSlot_ = slot;
+  previewAt_ = nowMs();
+}
+
+int App::ledStateSlot() const {
+  const Settings& s = settings();
+  auto on = [&s](int slot) { return s.leds[slot].fx != 0; };
+  bool charging = svc().sys->charging() && on(LED_CHARGING);
+  if (!svc().link->ready()) return on(LED_OFFLINE) ? LED_OFFLINE : charging ? LED_CHARGING : -1;
+  if (store().countStatus("waiting")) return LED_WAITING;
+  if (store().countStatus("working")) return LED_WORKING;
+  return charging ? LED_CHARGING : LED_STANDBY;
 }
 
 void App::updateLed(uint32_t now) {
+  if (elapsedMs(now, ledAt_) < 16) return;  // about 60 updates a second is smooth enough
+  ledAt_ = now;
   Settings& s = settings();
-  const Theme& t = T();
-  uint16_t color = 0;
-  uint8_t level = 0;
-  if (now < ledFlashUntil_ && s.ledMode > 0) {
-    color = ledFlashColor_;
-    level = ((now / 250) % 2) ? s.ledBright : 0;
-  } else if (s.ledMode == 1) {
-    if (store().countStatus("waiting")) {
-      color = t.warn;
-      level = ((now / 600) % 2) ? s.ledBright : s.ledBright / 6;
-    } else if (store().countStatus("working")) {
-      color = t.accent;
-      level = (uint8_t)(s.ledBright * (0.25f + 0.75f * (0.5f + 0.5f * sinf(now / 500.0f))));
+  int slot = -1;
+  uint32_t t = now;
+  uint8_t bright = s.ledBright;
+  if (previewSlot_ >= 0) {
+    slot = previewSlot_;
+    t = elapsedMs(now, previewAt_);
+    // Alerts replay with a short gap so their length shows; states just loop.
+    uint32_t len = slot >= LED_FIRST_ALERT ? led::lengthMs(s.leds[slot]) : 0;
+    if (len && t % (len + 700) >= len) slot = -1;
+    else if (len) t %= len + 700;
+  } else if (s.ledMode) {
+    if (alertSlot_ >= 0 && alertLen_ && elapsedMs(now, alertAt_) >= alertLen_) alertSlot_ = -1;
+    if (alertSlot_ >= 0) {
+      slot = alertSlot_;
+      t = elapsedMs(now, alertAt_);
+    } else if (s.ledMode == 1) {
+      slot = ledStateSlot();
     }
+    if (quietNow()) bright = s.ledQuiet == 0 ? bright : s.ledQuiet == 1 ? bright / 4 : 0;
+    if (screenOff_ || lowBatt_) bright /= 2;
+    if (screenOff_ && !ledKeptLit()) slot = -1;
   }
-  svc().sys->setLed(color, screenOff_ && level ? level / 2 : level);
+  svc().sys->setLed(slot >= 0 ? led::render(s.leds[slot], slot, t, bright) : Rgb{});
 }
 
 uint32_t App::frameInterval(uint32_t now) const {
@@ -401,7 +445,7 @@ uint32_t App::frameInterval(uint32_t now) const {
   if (updater().active()) return 80;
   LinkState st = svc().link->state();
   bool busy = st == LinkState::Connecting || st == LinkState::Handshake || st == LinkState::Pairing;
-  if (busy || store().countStatus("working") || store().countStatus("waiting") || now < ledFlashUntil_) return 80;
+  if (busy || store().countStatus("working") || store().countStatus("waiting")) return 80;
   return 250;
 }
 

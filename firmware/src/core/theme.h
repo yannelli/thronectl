@@ -22,9 +22,9 @@ extern const int ACCENT_COUNT;
 
 const Theme& T();
 void applyTheme(int themeIdx, int accentIdx);
-/** 0 small (more on screen), 1 normal (larger fonts and rows). Sets the fonts in F and the layout sizes. */
+/** 0 small (most on screen), 1 medium, 2 large. Sets the fonts in F and the layout sizes. */
 void applyTextSize(int size);
-bool largeText();
+int textScale();
 
 uint16_t blend(uint16_t a, uint16_t b, uint8_t alpha);  // alpha 0 = a, 255 = b
 

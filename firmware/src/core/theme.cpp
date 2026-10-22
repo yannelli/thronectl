@@ -1,4 +1,5 @@
 #include "theme.h"
+#include "fonts_medium.h"
 
 //                 name            bg              panel           panel2          fg              dim             accent          accent2         ok              warn            err             sel             selFg
 const Theme THEMES[] = {
@@ -66,20 +67,30 @@ const Font* mono = &lgfx::fonts::Font0;
 const Font* const glcd = &lgfx::fonts::Font0;
 }  // namespace F
 
-static bool g_large = false;
-bool largeText() { return g_large; }
+static int g_scale = 0;
+int textScale() { return g_scale; }
 
 void applyTextSize(int size) {
-  g_large = size == 1;
+  g_scale = size >= 0 && size <= 2 ? size : 0;
   using namespace lgfx::fonts;
-  F::small = g_large ? (const Font*)&DejaVu9 : &Font0;
-  F::text = g_large ? &DejaVu12 : &DejaVu9;
-  F::bold = g_large ? (const Font*)&FreeSansBold9pt7b : &DejaVu12;
-  F::big = g_large ? &DejaVu24 : &DejaVu18;
-  F::mono = g_large ? (const Font*)&AsciiFont8x16 : &Font0;
-  STATUS_H = g_large ? 14 : 12;
-  HINT_H = g_large ? 12 : 10;
-  HEADER_H = g_large ? 21 : 16;
-  LINE_H = g_large ? 14 : 11;
-  ROW_PAD = g_large ? 4 : 0;
+  struct Size {
+    const Font *small, *text, *bold, *big, *mono;
+    int status, hint, header, line, pad;
+  };
+  static const Size SIZES[] = {
+      {&Font0, &DejaVu9, &DejaVu12, &DejaVu18, &Font0, 12, 10, 16, 11, 0},
+      {&DejaVu9, &DejaVu11, &DejaVuBold12, &DejaVu18, &DejaVuMono11, 13, 11, 18, 13, 2},
+      {&DejaVu9, &DejaVu12, &FreeSansBold9pt7b, &DejaVu24, &AsciiFont8x16, 14, 12, 21, 14, 4},
+  };
+  const Size& z = SIZES[g_scale];
+  F::small = z.small;
+  F::text = z.text;
+  F::bold = z.bold;
+  F::big = z.big;
+  F::mono = z.mono;
+  STATUS_H = z.status;
+  HINT_H = z.hint;
+  HEADER_H = z.header;
+  LINE_H = z.line;
+  ROW_PAD = z.pad;
 }

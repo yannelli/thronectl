@@ -16,9 +16,11 @@ From the device you can start, watch, prompt, approve and stop agents (Claude Co
 | ![New agent](docs/img/new_4_prompt.png) | ![Terminal](docs/img/terminal.png) | ![Voice](docs/img/voice_rec.png) |
 | Launch wizard: harness, folder, mode, prompt | Full terminal: shell or attach to an agent | Hold G0 and talk |
 | ![Pairing](docs/img/pairing.png) | ![Processes](docs/img/procs.png) | ![Settings](docs/img/settings_display.png) |
-| Pairing code, confirmed on the host | Top processes, terminate or kill | 15 themes, 10 accent colors, two text sizes |
-| ![CPU slide](docs/img/home_slide1.png) | ![Memory slide](docs/img/home_slide2.png) | ![Normal text](docs/img/home_n.png) |
-| Dashboard slides: `,` and `/` or `<` and `>` | Memory, swap and disk | Normal text size: larger, shows less |
+| Pairing code, confirmed on the host | Top processes, terminate or kill | 15 themes, 10 accent colors, three text sizes |
+| ![CPU slide](docs/img/home_slide1.png) | ![Memory slide](docs/img/home_slide2.png) | ![Large text](docs/img/home_l.png) |
+| Dashboard slides: `,` and `/` or `<` and `>` | Memory, swap and disk | Large text size: bigger, shows less |
+| ![Approvals](docs/img/approvals.png) | ![LED](docs/img/settings_led.png) | ![SD backup](docs/img/sd_backup.png) |
+| Approvals: one key to allow, deny or comment | LED effects for each state and alert | Settings backup to any SD folder |
 | ![Absolutely Light](docs/img/theme_12.png) | ![Absolutely Dark](docs/img/theme_13.png) | ![Power](docs/img/settings_power.png) |
 | Absolutely Light (Claude-inspired) | Absolutely Dark | CPU, Wi-Fi and stats power saving |
 
@@ -87,6 +89,8 @@ Confirm the update on the device. What happens next depends on how thronectl was
 - **Standalone** (flashed at `0x0`): the device writes the new app to its spare slot and checks it before it restarts. If the check fails, the old firmware stays.
 - **Launcher:** Launcher owns the app slots, so the device saves `thronectl-cardputer-adv-v<version>.bin` to the SD card. Reboot, press any key on the Launcher screen, open SD, pick the file and choose Install.
 
+**From the device:** Settings > Device > Check for updates asks the host for the newest firmware. If there is one, confirm once and it installs. If the firmware is current and the host runs from a git checkout, the device offers to run `throne update` on the host. The daemon then restarts and the device reconnects.
+
 Without a host, copy the `.bin` to the SD card. Under Launcher, install it from Launcher. On a standalone install, open Settings > Device > Update from SD card.
 
 Firmware older than 0.2.0 cannot update over Wi-Fi, so install 0.2.0 once by hand (step 2 above). A daemon older than 0.2.0 has no `update` command. Upgrade it once by hand:
@@ -97,16 +101,19 @@ cd thronectl && git pull && cd daemon && npm install && npm run build && npm lin
 
 ## Using it
 
-The Cardputer has no arrow keys. In menus, the keys printed with arrows work without **fn**: `;` up, `.` down, `,` left, `/` right. `` ` `` (the Esc keycap) goes back from every screen, text fields and the agent prompt too. Backspace also goes back outside text fields. In text fields and the terminal, hold **fn** for arrows. **fn+`** is Esc. Opt+`` ` `` types a backtick. Opt+k shows all shortcuts on the device.
+The Cardputer has no arrow keys. In menus, the keys printed with arrows work without **fn**: `;` up, `.` down, `,` left, `/` right. `` ` `` (the Esc keycap) goes back from every screen, text fields and the agent prompt too. Backspace also goes back outside text fields. In text fields and the terminal, hold **fn** for arrows. **fn+`** is Esc. Opt+`` ` `` types a backtick. `[` and `]` page through long lists. Space starts talking on screens that do not type, and a second press sends. Opt+k shows all shortcuts on the device.
 
 ### Everywhere
 
 | Key | Action |
 |-----|--------|
 | **G0** (hold) | Talk. Release to send. "Tap to toggle" mode is in Settings > Voice |
+| Space | Talk, then Space or Enter to send (Settings > Voice > Space to talk) |
 | `` ` `` / Backspace | Back |
+| `[` / `]` | Page up / page down in lists |
 | Opt+h | Home |
 | Opt+a | Agents |
+| Opt+y | Approvals |
 | Opt+n | New agent |
 | Opt+t | Shell on the host |
 | Opt+s | Settings |
@@ -121,9 +128,9 @@ The status bar shows a crescent while alerts are silent (do not disturb or quiet
 
 ### Home
 
-`a` agents, `n` new agent, `t` shell, `p` processes, `l` notifications, `h` hosts, `w` Wi-Fi, `s` settings, `m` for the menu, `c` connect.
+`a` agents, `y` approvals, `n` new agent, `t` shell, `p` processes, `l` notifications, `h` hosts, `w` Wi-Fi, `s` settings, `m` for the menu, `c` connect.
 
-The dashboard opens on the overview. `,` and `/` (or `<` and `>`) flip through detail slides: CPU (per-core bars, load, history), memory and disk (memory, swap, disk, history), network (down and up rates, history, Wi-Fi signal, latency), agents (counts and the full list) and host (hostname, system, user, uptime, battery, daemon). The dots at the top right show the slide. Enter opens the matching screen. Settings > Display > Rotate dashboard flips slides on a timer.
+The dashboard opens on the overview. `,` and `/` (or `<` and `>`) flip through detail slides, and `1` to `6` jump to one: CPU (per-core bars, load, history), memory and disk (memory, swap, disk, history), network (down and up rates, history, Wi-Fi signal, latency), agents (counts and the full list) and host (hostname, system, user, uptime, battery, daemon). The dots at the top right show the slide. Enter opens the matching screen. Settings > Display > Rotate dashboard flips slides on a timer.
 
 When the link is down, Home shows when the next automatic retry happens. Press `c` to retry now.
 
@@ -141,8 +148,16 @@ When the link is down, Home shows when the next automatic retry happens. Press `
 | `l` | Show the last reply (in the agent view) |
 | `f` | Filter: all, active, waiting |
 | `n` | New agent |
+| `1` to `9` | Open the agent at that place in the list |
+| `[` / `]` | In the agent view: the agent before or after |
 
 Hold **G0** on an agent to speak a prompt to it. On any other screen, speech starts a new agent with your words as the prompt. If you have launched an agent before, the wizard reuses your last choices and goes straight to the prompt step. Press Enter to launch.
+
+### Approvals
+
+One card for each agent that waits for you: the agent, the tool it wants to use and what it asks. `y` or Enter allows, `d` denies, and `c` denies with a comment that goes to the agent. Speech on this screen becomes a comment too. `,` and `/` move between cards, `Y` allows all of them, `o` opens the agent and `t` its terminal.
+
+**Simple mode** (Settings > Agents) makes the approval queue the home screen, for quick review away from your desk. When nothing waits, it shows "All clear" with the working and idle counts. `m` still opens the go-to menu.
 
 ### New agent wizard
 
@@ -175,23 +190,29 @@ Two font sizes: 40x15 (default) and 60x20 (Settings > Display > Terminal font). 
 
 | Group | Settings |
 |-------|----------|
-| Display | Theme, accent color, text size (Small or Normal), brightness, dim after, dimmed brightness, screen off after, flip screen, terminal font, terminal output keeps screen on, 24-hour clock, battery percent, animations, boot splash, rotate dashboard, toast seconds |
+| Display | Theme, accent color, text size (Small, Medium or Large), brightness, dim after, dimmed brightness, screen off after, flip screen, terminal font, terminal output keeps screen on, 24-hour clock, battery percent, animations, boot splash, rotate dashboard, toast seconds |
 | Sound | Volume, alert volume, voice volume, key clicks, alert sounds, do not disturb, quiet hours, finished turns (every turn, over 30 s, over 2 min, off), approval alerts, error alerts, remind while waiting, wake on alerts, startup chime, play all chimes |
-| Voice | Read replies aloud, push to talk (hold or tap), mic gain, send without review, host voice name, test speaker |
-| LED | Off, agent status (pulses while agents work, blinks when one waits), alerts only, LED brightness |
-| Agents | Confirm before ending, open terminal on launch, show exited agents, default harness, clear notifications |
+| Voice | Read replies aloud, push to talk (hold or tap), space to talk, mic gain, send without review, host voice name, test speaker |
+| LED | LED mode (off, status and alerts, alerts only), brightness, in quiet hours, with screen off, an effect for each state and alert, reset |
+| Agents | Simple mode, confirm before ending, open terminal on launch, show exited agents, default harness, clear notifications |
 | Network | Wi-Fi networks, hosts and pairing, auto-connect, device name, time zone (or from host), disconnect, reconnect |
 | Keyboard | Key repeat delay and rate, shortcut list |
 | Power | CPU speed, CPU saver, Wi-Fi power save, stats when active, dimmed and screen off, battery saver at 20%, turn off at 3%, power off |
-| Device | About, update from SD card, back up settings to SD, restore settings from SD, reset settings (keeps Wi-Fi and pairing), reboot, factory reset |
+| Device | About, check for updates, update from SD card, back up settings to SD, restore settings from SD, reset settings (keeps Wi-Fi and pairing), reboot, factory reset |
 
 Themes: Throne, Midnight, Tokyo Night, Catppuccin, Dracula, Nord, Gruvbox, Solarized, Synthwave, Matrix, Amber CRT, Paper, and the Claude-inspired Absolutely Light, Absolutely Dark and Absolutely Black. Absolutely Light and Dark use the Claude app's light and dark palettes (ivory or warm charcoal with the clay accent). Absolutely Black is a darker variant of the dark palette. The Clay accent puts the same orange on any theme.
 
-**Text size.** Small is the original dense layout. Normal uses larger fonts and taller rows, so each screen shows less: fewer list rows, fewer output lines in the agent view, and no history strip on the dashboard overview (the CPU and Network slides still have it). The terminal keeps its own font setting.
+**Text size.** Small is the dense layout. Medium uses 11 and 12 px DejaVu fonts. Large is the old "Normal": the largest fonts and tallest rows, so each screen shows the least. Medium and Large leave out the history strip on the dashboard overview (the CPU and Network slides still have it). The terminal keeps its own font setting. A saved "Normal" setting becomes Large.
+
+**LED.** Each state and alert has its own effect: Standby, Working, Waiting, Offline and Charging run in the background; Done, Attention, Error and Info play once. Pick an effect (solid, breathe, pulse, blink, double blink, heartbeat, strobe, flicker, rainbow, ramp), a color (the theme accent or one of 13), a speed, a level and, for alerts, a length (cycles, seconds, or until a key press). The LED plays the effect while its page is open. Defaults: a slow dim breath on standby, a breath while agents work, a pulse while one waits, a double blink when a turn ends, a fast blink for approvals and a strobe on errors.
+
+The LED gets its power through the display backlight switch. With the screen off it is dark, unless "With screen off" is "Keep lit": then the panel sleeps and the backlight stays on behind it, which costs battery. At low screen brightness the LED can flicker for the same reason.
 
 **Alerts.** Filtered alerts still go to Notifications, without a toast, sound or wake. During do not disturb and quiet hours, alerts show a toast but make no sound, do not wake the screen and do not flash the LED. "Remind while waiting" chimes again while an agent waits for approval. The daemon sends the turn length with each finished-turn alert, so "Turns over 2 min" skips quick replies.
 
-**Settings backup.** The backup is `/thronectl/settings.json` on the SD card. It includes saved Wi-Fi passwords. The device key is not in it, so after a factory reset you pair again.
+**Settings backup.** Back up and Restore open a folder browser on the SD card. Enter or `/` opens a folder, `,` goes up, `n` makes a folder and `s` saves `thronectl-settings.json` in the open folder. Restore lists `.json` files, so backups from 0.3 (`/thronectl/settings.json`) still load. The device remembers the last folder. The backup includes saved Wi-Fi passwords. The device key is not in it, so after a factory reset you pair again.
+
+The card must be FAT32. exFAT cards (most cards over 32 GB) do not mount: the browser says so and `f` formats the card as FAT32, which erases it. A card that already has a FAT volume is never formatted.
 
 ### Power saving
 
@@ -295,6 +316,9 @@ The wire format is in [docs/protocol.md](docs/protocol.md).
 
 ## Troubleshooting
 
+- **"No SD card found" or "Card needs FAT32".** Use a FAT32 card. The device tries 20, 10 and 4 MHz before it gives up.
+- **The device restarted when an agent printed a lot.** 0.4.0 fixes this: the daemon caps replies at 32 KB and agent output at 12 KB, and the device drops a reply it has no memory for instead of crashing.
+
 - **Agents or the shell fail with "posix_spawnp failed" (macOS).** node-pty 1.1 installs its `spawn-helper` without the execute bit. The daemon now fixes the bit itself when it starts a terminal, and `thronectl doctor` checks and fixes it too. If the install folder is read-only, run the `chmod +x` command the error message prints.
 - **"X not found on the daemon's PATH".** The daemon checks the command and the folder before it starts an agent. Run `thronectl doctor`, or set an absolute path for the harness in the config.
 
@@ -315,7 +339,12 @@ docs/       Protocol spec and screenshots
 
 ## Hardware notes
 
+The full pin map, part notes and photos are in [docs/hardware](docs/hardware/README.md).
+
 - Cardputer ADV: ESP32-S3FN8 (8 MB flash, no PSRAM), 240x135 ST7789V2, TCA8418 keyboard, ES8311 codec with speaker and mic, RGB LED on GPIO 21, G0 button.
+- M5Unified cannot drive the LED on this core (its RMT bus is a stub before ESP-IDF 5), so the firmware sends the WS2812 frames itself.
+- The charger's status pins are not wired. The device counts as charging when a USB host is attached or the battery voltage keeps rising. The battery percent comes from an averaged voltage and a LiPo curve.
+- Power off is deep sleep: press G0 to wake it. The side switch is the real off.
 - The speaker and the mic share one I2S bus, so playback stops while you talk.
 - The firmware runs one loop. The screen redraws at 30 fps while you use it and slows down when idle to save battery.
 - CPU clock: 240 MHz maximum. 240, 160 and 80 MHz work with Wi-Fi; see Power saving.

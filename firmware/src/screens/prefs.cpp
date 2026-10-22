@@ -19,6 +19,7 @@ struct Item {
   std::string* str = nullptr;
   std::function<void()> run;
   std::string hint;
+  std::function<std::string()> value;  // optional text beside an action's arrow
 };
 
 std::vector<std::string> optLabels(const OptList& o) { return std::vector<std::string>(o.labels, o.labels + o.count); }
@@ -60,6 +61,16 @@ Item action(const char* label, std::function<void()> fn, const char* hint = "") 
   return i;
 }
 
+Item pick(const char* label, uint8_t& ref, const char* const* names, int n) {
+  Item i{Item::CHOICE, label};
+  i.get = [&ref, n] { return (int)(ref % n); };
+  i.set = [&ref](int v) { ref = (uint8_t)v; };
+  i.options = [names, n] { return std::vector<std::string>(names, names + n); };
+  return i;
+}
+
+Screen* makeLedSlot(int slot);
+
 void retheme() { applyTheme(settings().theme, settings().accent); }
 void display() { app().applyDisplay(); }
 
@@ -77,8 +88,6 @@ void danger(const char* title, const char* msg, std::function<void()> fn) {
   ui().confirm(title, msg, [fn](bool yes) { if (yes) fn(); });
 }
 
-const char* const BACKUP_PATH = "/thronectl/settings.json";
-
 /** Applies a whole new Settings and rebuilds the stack, since sizes and themes may change. */
 void adopt(const Settings& next, int sel) {
   settings() = next;
@@ -94,19 +103,41 @@ void adopt(const Settings& next, int sel) {
   ui().push(makeSettingsCategory(8, sel));
 }
 
-void backup() {
-  if (!svc().ota->sdReady()) return ui().toast("error", "No SD card", "Insert a FAT32 card first.");
-  if (svc().ota->sdWriteFile(BACKUP_PATH, settingsToJson(settings()))) ui().toast("done", "Settings saved to SD", BACKUP_PATH);
-  else ui().toast("error", "Could not write the SD card");
+void askHostUpdate(const std::string& fw, const std::string& host) {
+  ui().confirm("Firmware is up to date", "v" + fw + " is the newest. Update thronectl on the host (v" + host + ") from git? Its daemon restarts.",
+               [](bool yes) {
+                 if (!yes) return;
+                 svc().link->call("update.host", [](bool ok, JsonVariantConst, const char* err) {
+                   if (!ok) return ui().toast("error", "Host update failed", err ? err : "");
+                   ui().toast("info", "Host is updating", "The device reconnects when the daemon is back.", 6000);
+                 });
+               });
 }
 
-void restore() {
-  std::string json;
-  if (!svc().ota->sdReadFile(BACKUP_PATH, json)) return ui().toast("error", "No backup found", std::string("Looked for ") + BACKUP_PATH);
-  Settings next = settings();
-  if (!settingsFromJson(next, json)) return ui().toast("error", "Backup is damaged", "The file is not valid settings JSON.");
-  adopt(next, 3);
-  ui().toast("done", "Settings restored");
+/** Asks the host for newer firmware, or offers to update the host itself when the firmware is current. */
+void checkUpdates() {
+  if (!svc().link->ready()) return ui().toast("error", "Not connected", "Connect to a host first.");
+  ui().toast("info", "Checking for updates", "The host looks at the latest release.", 3000);
+  JsonDocument p;
+  p["force"] = true;
+  svc().link->call("update.check", p, [](bool ok, JsonVariantConst r, const char* err) {
+    if (!ok) return ui().toast("error", "Update check failed", err ? err : "");
+    std::string latest = r["latest"] | "", source = r["source"] | "", fw = r["fw"] | FW_VERSION, host = r["host"] | "";
+    if (latest.empty() && !(r["hostUpdate"] | false))
+      return ui().toast("info", "No firmware on the host", r["note"] | "It needs gh for releases, or a local build.", 6000);
+    if (!(r["newer"] | false)) {
+      if (r["hostUpdate"] | false) return askHostUpdate(fw, host);
+      return ui().toast("done", "Up to date", "Firmware v" + fw + ", host v" + host + ".");
+    }
+    ui().confirm("Update firmware?", "Version " + latest + " from " + source + ". Installs, then restarts.", [](bool yes) {
+      if (!yes) return;
+      JsonDocument none;
+      none.to<JsonObject>();
+      svc().link->call("update.firmware", none, [](bool ok, JsonVariantConst, const char* err) {
+        if (!ok) ui().toast("error", "Update failed", err ? err : "");
+      }, 90000);
+    });
+  }, 90000);
 }
 
 /** Back to defaults, keeping what it takes to reconnect: Wi-Fi, paired hosts, name and time zone. */
@@ -118,7 +149,7 @@ void resetKeepPairing() {
   next.defaultHost = cur.defaultHost;
   next.deviceName = cur.deviceName;
   next.tz = cur.tz;
-  adopt(next, 4);
+  adopt(next, 5);
   ui().toast("done", "Settings reset", "Wi-Fi and pairing kept.");
 }
 
@@ -185,6 +216,7 @@ std::vector<Item> category(int idx) {
     case 2:
       v.push_back(choice("Read replies aloud", s.speakReplies, SPEAK_OPTS));
       v.push_back(choice("Push to talk", s.pttMode, PTT_OPTS));
+      v.push_back(toggle("Space to talk", s.spaceTalk));
       v.push_back(choice("Mic gain", s.micGain, MIC_GAIN_OPTS));
       v.push_back(toggle("Send without review", s.autoSend));
       v.push_back(text("Voice name", s.ttsVoice, "Host TTS voice, e.g. Samantha or alloy"));
@@ -192,9 +224,20 @@ std::vector<Item> category(int idx) {
       break;
     case 3:
       v.push_back(choice("LED", s.ledMode, LED_OPTS));
-      v.push_back(slider("LED brightness", s.ledBright, 0, 255, 16));
+      v.push_back(slider("Brightness", s.ledBright, 0, 255, 16));
+      v.push_back(choice("In quiet hours", s.ledQuiet, LED_QUIET_OPTS));
+      v.push_back(choice("With screen off", s.ledScreenOff, LED_SCREEN_OFF_OPTS));
+      for (int i = 0; i < LED_SLOTS; i++) {
+        Item it = action(led::SLOT_NAMES[i], [i] { ui().push(makeLedSlot(i)); });
+        it.value = [&s, i] { return std::string(led::FX_NAMES[s.leds[i].fx % led::FX_COUNT]); };
+        v.push_back(it);
+      }
+      v.push_back(action("Reset LED effects", [] {
+        danger("Reset LED effects?", "Every state and alert goes back to its default.", [] { settings().leds = led::allDefaults(); });
+      }));
       break;
     case 4: {
+      v.push_back(toggle("Simple mode", s.simpleMode));
       v.push_back(toggle("Confirm before ending", s.confirmKill));
       v.push_back(toggle("Open terminal on launch", s.attachAfterCreate));
       v.push_back(toggle("Show exited agents", s.showExited));
@@ -234,17 +277,14 @@ std::vector<Item> category(int idx) {
       v.push_back(choice("Stats when screen off", s.statsOff, STATS_OFF_OPTS));
       v.push_back(toggle("Battery saver at 20%", s.lowBattSave));
       v.push_back(toggle("Turn off at 3%", s.battAutoOff));
-      v.push_back(action("Power off", [] { danger("Power off?", "Press the side button to turn it back on.", [] { settingsSave(); svc().sys->powerOff(); }); }));
+      v.push_back(action("Power off", [] { danger("Power off?", "Press G0 to turn it back on. The side switch turns it fully off.", [] { settingsSave(); svc().sys->powerOff(); }); }));
       break;
     default:
       v.push_back(action("About this device", [] { ui().push(makeAbout()); }));
+      v.push_back(action("Check for updates", checkUpdates, "ask the host"));
       v.push_back(action("Update from SD card", [] { ui().push(makeSdUpdate()); }));
-      v.push_back(action("Back up settings to SD", [] {
-        danger("Back up settings?", "Writes /thronectl/settings.json. It includes Wi-Fi passwords.", backup);
-      }));
-      v.push_back(action("Restore settings from SD", [] {
-        danger("Restore settings?", "Replaces all settings with the SD backup.", restore);
-      }));
+      v.push_back(action("Back up settings to SD", [] { ui().push(makeSdBrowser(true)); }, "pick a folder"));
+      v.push_back(action("Restore settings from SD", [] { ui().push(makeSdBrowser(false)); }, "pick a backup"));
       v.push_back(action("Reset settings", [] { danger("Reset settings?", "Back to defaults. Wi-Fi and paired hosts stay.", resetKeepPairing); }));
       v.push_back(action("Reboot", [] { danger("Reboot?", "Settings are saved first.", [] { settingsSave(); svc().sys->reboot(); }); }));
       v.push_back(action("Factory reset", [] {
@@ -257,18 +297,28 @@ std::vector<Item> category(int idx) {
 
 const char* const CATS[] = {"Display", "Sound", "Voice", "LED", "Agents", "Network", "Keyboard", "Power", "Device"};
 const char* const CAT_SUB[] = {"theme, text size, sleep", "volume, alerts, quiet", "talk, read aloud, mic",
-                               "status light", "launch, confirm", "Wi-Fi, hosts, time zone",
+                               "effects per state", "simple mode, launch", "Wi-Fi, hosts, time zone",
                                "repeat, shortcuts", "CPU, Wi-Fi, battery", "about, update, reset"};
 constexpr int CAT_COUNT = 9;
 
 class Category : public Screen {
  public:
-  Category(int idx, int sel) : idx_(idx), items_(category(idx)) {
+  Category(int idx, int sel) : Category(CATS[idx], category(idx), sel) {}
+  /** `preview` is an LED slot to show on the LED while this page is open, or -1. */
+  Category(std::string title, std::vector<Item> items, int sel = 0, int preview = -1)
+      : title_(std::move(title)), items_(std::move(items)), preview_(preview) {
     list_.y = STATUS_H + HEADER_H;
     list_.h = SCREEN_H - HINT_H - list_.y;
     list_.rowH = 14;
     list_.count = (int)items_.size();
     list_.sel = sel;
+  }
+  ~Category() override {
+    if (preview_ >= 0) app().ledPreview(-1);
+  }
+
+  void onEnter() override {
+    if (preview_ >= 0) app().ledPreview(preview_);
   }
 
   bool onKey(const KeyEvent& e) override {
@@ -305,7 +355,7 @@ class Category : public Screen {
 
   void draw(Canvas& c) override {
     const Theme& t = T();
-    gfx::header(c, CATS[idx_]);
+    gfx::header(c, title_.c_str());
     list_.draw(c, [&](Canvas& cv, int i, int x, int y, int w, int, bool sel) {
       Item& it = items_[i];
       gfx::text(cv, F::text, x + 6, y + 2, it.label, sel ? t.selFg : t.fg);
@@ -339,6 +389,7 @@ class Category : public Screen {
         case Item::ACTION:
           cv.drawLine(rx - 4, y + 3, rx, y + 7, t.dim);
           cv.drawLine(rx, y + 7, rx - 4, y + 11, t.dim);
+          if (it.value) gfx::text(cv, F::text, rx - 9, y + 2, gfx::ellipsize(cv, F::text, it.value(), room - 9), t.accent, gfx::Datum::top_right);
           break;
       }
     });
@@ -362,10 +413,23 @@ class Category : public Screen {
     }
   }
 
-  int idx_;
+  std::string title_;
   std::vector<Item> items_;
+  int preview_;
   ListView list_;
 };
+
+Screen* makeLedSlot(int slot) {
+  LedSlot& l = settings().leds[slot];
+  std::vector<Item> v;
+  v.push_back(pick("Effect", l.fx, led::FX_NAMES, led::FX_COUNT));
+  v.push_back(pick("Color", l.color, led::COLOR_NAMES, led::COLOR_COUNT));
+  v.push_back(pick("Speed", l.speed, led::SPEED_NAMES, led::SPEED_COUNT));
+  v.push_back(pick("Level", l.level, led::LEVEL_NAMES, led::LEVEL_COUNT));
+  if (slot >= LED_FIRST_ALERT) v.push_back(pick("Length", l.length, led::LENGTH_NAMES, led::LENGTH_COUNT));
+  v.push_back(action("Default", [slot] { settings().leds[slot] = led::defaults(slot); }, "reset this one"));
+  return new Category(std::string("LED: ") + led::SLOT_NAMES[slot], std::move(v), 0, slot);
+}
 
 class SettingsMenu : public Screen {
  public:
@@ -398,6 +462,15 @@ class SettingsMenu : public Screen {
 };
 
 }  // namespace
+
+void restoreSettingsFile(const std::string& path) {
+  std::string json;
+  if (!svc().ota->sdReadFile(path, json)) return ui().toast("error", "Could not read the backup", svc().ota->error());
+  Settings next = settings();
+  if (!settingsFromJson(next, json)) return ui().toast("error", "Backup is damaged", "The file is not valid settings JSON.");
+  adopt(next, 4);
+  ui().toast("done", "Settings restored", path);
+}
 
 Screen* makeSettings() { return new SettingsMenu(); }
 Screen* makeSettingsCategory(int idx, int sel) { return new Category(idx, sel); }

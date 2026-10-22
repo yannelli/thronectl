@@ -1,4 +1,5 @@
 #include <M5Cardputer.h>
+#include <driver/gpio.h>
 #include "core/app.h"
 #include "core/settings.h"
 #include "core/ui.h"
@@ -30,10 +31,21 @@ static void loadKeys(uint8_t priv[32], uint8_t pub[32]) {
 }
 
 void setup() {
+  // Power off holds the backlight switch low through deep sleep. Release it before the display starts.
+  gpio_hold_dis(GPIO_NUM_38);
+  gpio_deep_sleep_hold_dis();
   auto cfg = M5.config();
   cfg.internal_mic = true;
   cfg.internal_spk = true;
+  cfg.internal_imu = false;  // nothing reads the BMI270, and the ADV has no RTC chip
+  cfg.internal_rtc = false;
   M5Cardputer.begin(cfg, true);
+  // The BMI270 keeps its state across a reset, so put it back in suspend in case it was left running.
+  M5.In_I2C.writeRegister8(0x69, 0x7D, 0x00, 400000);
+  M5.In_I2C.writeRegister8(0x69, 0x7C, 0x03, 400000);
+  pinMode(44, OUTPUT);  // IR LED off, with no pull-up leaking through it
+  digitalWrite(44, LOW);
+  pinMode(5, INPUT_PULLUP);  // keeps a Cap module on the header off the shared SD lines
   M5.Display.setRotation(1);
   M5.Display.fillScreen(0);
   settingsBind(&nvs);

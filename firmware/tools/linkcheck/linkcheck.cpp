@@ -4,9 +4,16 @@
 #include <cstdlib>
 #include <thread>
 #include "core/settings.h"
+#include "core/theme.h"
 #include "core/updater.h"
 #include "net/crypto.h"
 #include "net/link.h"
+
+// Settings pull in the LED defaults, which read theme colors. No screens run here.
+const Theme& T() {
+  static const Theme t{"none"};
+  return t;
+}
 
 uint32_t nowMs() {
   using namespace std::chrono;

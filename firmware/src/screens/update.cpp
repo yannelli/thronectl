@@ -78,7 +78,7 @@ class UpdateScreen : public Screen {
           int bh = gfx::height(c, F::bold), sh = gfx::height(c, F::small);
           gfx::text(c, F::bold, 8, y, "Saved to the SD card", t.ok);
           gfx::text(c, F::small, 8, y + bh + 1, gfx::ellipsize(c, F::small, baseName(u.sdPath()), SCREEN_W - 16), t.dim);
-          paragraph(c, y + bh + sh + 4, largeText() ? "Reboot, then install it from SD in Launcher." : LAUNCHER_STEPS, t.fg);
+          paragraph(c, y + bh + sh + 4, textScale() ? "Reboot, then install it from SD in Launcher." : LAUNCHER_STEPS, t.fg);
           gfx::hints(c, {{"enter", "reboot"}, {"`", "later"}});
         } else {
           gfx::text(c, F::bold, 8, y, "Installed. Restarting...", t.ok);

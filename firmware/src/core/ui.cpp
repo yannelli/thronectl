@@ -202,6 +202,7 @@ class InputScreen : public Screen {
     return true;
   }
   std::string voiceTarget() const override { return "dictate"; }
+  bool typing() const override { return true; }
   void draw(Canvas& c) override {
     gfx::header(c, title_);
     int top = STATUS_H + HEADER_H + 3;

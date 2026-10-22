@@ -191,16 +191,20 @@ class About : public Screen {
 
 Screen* makeSplash() { return new Splash(); }
 Screen* makeNotices() { return new Notices(); }
-Screen* makeTextView(const std::string& title, const std::string& text) { return new TextScreen(title, text); }
+Screen* makeTextView(const std::string& title, const std::string& text) {
+  constexpr size_t MAX_TEXT = 12000;  // about 30 screens; the wrapped copy doubles it
+  return new TextScreen(title, text.size() > MAX_TEXT ? text.substr(0, MAX_TEXT) + "\n[cut]" : text);
+}
 Screen* makeAbout() { return new About(); }
 
 Screen* makeKeyHelp() {
   return makeTextView("Shortcuts",
                       "Everywhere\n"
-                      "` (Esc)  back, from any screen\n"
+                      "` or del  back, from any screen\n"
                       "; .  up and down    , /  left and right\n"
-                      "G0  hold to talk to the open agent\n"
-                      "Opt+h  home    Opt+a  agents\n"
+                      "[ ]  page up and down in lists\n"
+                      "space  talk (again to send), or hold G0\n"
+                      "Opt+h  home    Opt+a  agents    Opt+y  approve\n"
                       "Opt+n  new agent    Opt+t  shell\n"
                       "Opt+s  settings    Opt+enter  go to\n"
                       "Opt+m  mute    Opt+d  do not disturb\n"
@@ -209,7 +213,9 @@ Screen* makeKeyHelp() {
                       "Opt+k  this list\n"
                       "\n"
                       "Home\n"
-                      ", / or < >  dashboard slides\n"
+                      ", / or 1 to 6  dashboard slides\n"
+                      "y  approvals (Settings > Agents > Simple mode\n"
+                      "   makes it the home screen)\n"
                       "enter  open the slide's screen\n"
                       "a agents  n new  t shell  p procs\n"
                       "h hosts  w Wi-Fi  s settings  l alerts\n"
@@ -217,7 +223,12 @@ Screen* makeKeyHelp() {
                       "\n"
                       "Agents\n"
                       "y allow  d deny  enter open  t terminal\n"
-                      "p prompt  f filter  k end\n"
+                      "p prompt  f filter  k end  1 to 9 open\n"
+                      "[ ]  agent before or after, in an agent\n"
+                      "\n"
+                      "Approvals\n"
+                      "y or enter allow  d deny  c comment\n"
+                      ", /  next card   Y allow all   o open\n"
                       "\n"
                       "Terminal\n"
                       "`  leave (press twice for a shell)\n"

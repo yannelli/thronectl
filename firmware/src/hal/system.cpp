@@ -1,30 +1,70 @@
 #include <M5Cardputer.h>
 #include <Preferences.h>
+#include <driver/gpio.h>
+#include <esp_sleep.h>
 #include <esp_system.h>
 #include <sys/time.h>
 #include <ctime>
 #include "hal.h"
 
 static const char* NS = "throne";
+static constexpr uint8_t ES8311_ADDR = 0x18, BMI270_ADDR = 0x69;
 
 void SystemHal::begin() {
   battAt_ = 0;
   loop(millis());
 }
 
+// Resting LiPo voltage to percent. M5Unified's straight line from 3.3 to 4.1 V reads high in the middle.
+static int lipoPct(float v) {
+  static const float V[] = {3.30f, 3.50f, 3.65f, 3.73f, 3.80f, 3.87f, 3.98f, 4.10f, 4.20f};
+  static const int P[] = {0, 3, 10, 25, 40, 55, 75, 90, 100};
+  if (v <= V[0]) return 0;
+  for (int i = 1; i < 9; i++)
+    if (v < V[i]) return P[i - 1] + (int)((v - V[i - 1]) / (V[i] - V[i - 1]) * (P[i] - P[i - 1]));
+  return 100;
+}
+
 void SystemHal::loop(uint32_t now) {
   if (battAt_ && now - battAt_ < 5000) return;
   battAt_ = now ? now : 1;
-  int lvl = M5.Power.getBatteryLevel();
-  batt_ = lvl >= 0 && lvl <= 100 ? lvl : -1;
-  volts_ = M5.Power.getBatteryVoltage() / 1000.0f;
-  chg_ = M5.Power.isCharging() == m5::Power_Class::is_charging;
+  int mv = 0;
+  for (int i = 0; i < 8; i++) mv += M5.Power.getBatteryVoltage();
+  float v = mv / 8000.0f;
+  bool usb = HWCDC::isPlugged();
+  if (v < 2.5f) {
+    batt_ = -1;
+    volts_ = 0;
+    chg_ = usb;
+    return;
+  }
+  volts_ = volts_ > 0 ? volts_ * 0.7f + v * 0.3f : v;
+  batt_ = lipoPct(volts_);
+  // The TP4057 status pins are not wired, so guess: a USB host is attached, or the voltage keeps rising.
+  if (!trendAt_ || now - trendAt_ >= 60000) {
+    rising_ = trendAt_ && volts_ - trendV_ > 0.015f;
+    trendV_ = volts_;
+    trendAt_ = now | 1;
+  }
+  chg_ = usb || rising_;
 }
 
 void SystemHal::setBrightness(uint8_t b) {
   if (b == brightness_) return;
   brightness_ = b;
   M5.Display.setBrightness(b);
+  ledAt_ = 0;  // the LED runs off the backlight switch, so it may have lost its color
+}
+
+void SystemHal::setPanelSleep(bool asleep) {
+  if (asleep == asleep_) return;
+  asleep_ = asleep;
+  if (asleep) M5.Display.sleep();
+  else {
+    M5.Display.wakeup();
+    delay(5);  // the ST7789 takes 5 ms after sleep out before it accepts pixels
+  }
+  brightness_ = -1;
 }
 
 void SystemHal::setRotationFlipped(bool flipped) {
@@ -34,14 +74,17 @@ void SystemHal::setRotationFlipped(bool flipped) {
   M5.Display.setRotation(r);
 }
 
-void SystemHal::setLed(uint16_t c, uint8_t level) {
-  if (!level) c = 0;
-  if (c == ledColor_ && level == ledLevel_) return;
-  ledColor_ = c;
-  ledLevel_ = level;
-  uint8_t r = ((c >> 11) & 0x1F) << 3, g = ((c >> 5) & 0x3F) << 2, b = (c & 0x1F) << 3;
-  M5.Led.setBrightness(level);
-  M5.Led.setAllColor(r, g, b);
+// The StampS3A WS2812 on GPIO 21. M5.Led cannot drive it here: on ESP-IDF 4.4 its RMT bus
+// is an empty stub, so the core's own RMT writer sends the frame instead.
+static constexpr uint8_t LED_PIN = 21;
+
+void SystemHal::setLed(Rgb c) {
+  // Resend now and then: the LED shares the backlight supply and comes back dark after a power gap.
+  uint32_t now = millis();
+  if (c == led_ && ledAt_ && now - ledAt_ < 100) return;
+  led_ = c;
+  ledAt_ = now | 1;
+  neopixelWrite(LED_PIN, c.r, c.g, c.b);
 }
 
 void SystemHal::setCpuMhz(uint16_t mhz) {
@@ -105,9 +148,23 @@ void SystemHal::factoryReset() {
 }
 
 void SystemHal::powerOff() {
-  M5.Display.setBrightness(0);
-  M5.Led.setAllColor(0, 0, 0);
-  M5.Power.powerOff();
+  setLed({});
+  M5.Speaker.end();
+  M5.Mic.end();
+  // The rails stay up in deep sleep, so quiet the parts that would keep drawing current.
+  M5.In_I2C.writeRegister8(ES8311_ADDR, 0x0D, 0xFC, 400000);
+  M5.In_I2C.writeRegister8(ES8311_ADDR, 0x00, 0x00, 400000);
+  M5.In_I2C.writeRegister8(BMI270_ADDR, 0x7D, 0x00, 400000);
+  M5.In_I2C.writeRegister8(BMI270_ADDR, 0x7C, 0x03, 400000);
+  M5.Display.sleep();
+  // Hold the backlight switch off through sleep; setup() releases the hold.
+  pinMode(GPIO_NUM_38, OUTPUT);
+  digitalWrite(GPIO_NUM_38, LOW);
+  gpio_hold_en(GPIO_NUM_38);
+  gpio_deep_sleep_hold_en();
+  while (digitalRead(GPIO_NUM_0) == LOW) delay(10);
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
+  esp_deep_sleep_start();
 }
 
 std::string NvsStore::load(const char* key) {

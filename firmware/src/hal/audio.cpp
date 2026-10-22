@@ -4,6 +4,7 @@
 #include "hal.h"
 
 static constexpr uint8_t CH_STREAM = 0, CH_CHIME = 1, CH_CLICK = 2;
+static constexpr uint8_t ES8311_ADDR = 0x18, ES8311_PGA = 0x14, PGA_21DB = 0x17;  // MIC1 input, +21 dB
 
 void AudioHal::begin() {
   micBuf_ = (int16_t*)malloc(sizeof(int16_t) * MIC_CHUNK * MIC_BUFS);
@@ -52,10 +53,20 @@ bool AudioHal::micStart(uint8_t gain) {
   M5.Speaker.end();
   auto cfg = M5.Mic.config();
   cfg.sample_rate = 16000;
-  cfg.magnification = gain;
+  // M5Unified leaves the ES8311 mic PGA at 0 dB. Gain before the ADC is cleaner than digital gain,
+  // so the codec gets +21 dB (about 11x) and the digital gain shrinks to match.
+  cfg.magnification = gain / 11 ? gain / 11 : 1;
   cfg.noise_filter_level = 64;
   M5.Mic.config(cfg);
-  if (!M5.Mic.begin()) {
+  bool ok = M5.Mic.begin();
+  if (ok) M5.In_I2C.writeRegister8(ES8311_ADDR, ES8311_PGA, PGA_21DB, 400000);
+  if (ok && M5.In_I2C.readRegister8(ES8311_ADDR, ES8311_PGA, 400000) != PGA_21DB) {
+    M5.Mic.end();  // the codec did not take it: fall back to digital gain alone
+    cfg.magnification = gain;
+    M5.Mic.config(cfg);
+    ok = M5.Mic.begin();
+  }
+  if (!ok) {
     M5.Speaker.begin();
     return false;
   }

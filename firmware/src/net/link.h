@@ -44,7 +44,8 @@ class Link : public LinkApi {
   void sendHello();
   bool flush();
   bool receive();
-  void handleFrame(const uint8_t* data, size_t len);
+  void handleFrame(uint8_t* data, size_t len);
+  void dropReply(const char* json, size_t len, const char* why);
   void handleHostHello(JsonDocument& doc);
   void handleMessage(JsonDocument& doc);
   void handleAuth(JsonDocument& doc);

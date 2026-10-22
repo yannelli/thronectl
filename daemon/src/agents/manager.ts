@@ -3,10 +3,11 @@ import type { Config } from "../config.js";
 import { logger } from "../log.js";
 import { DirectBackend } from "./direct.js";
 import { PaseoBackend } from "./paseo.js";
-import type { AgentBackend, AgentInfo, AgentStatus, CreateParams, HarnessInfo, NotifyEvent } from "./types.js";
+import type { AgentBackend, AgentInfo, AgentStatus, CreateParams, HarnessInfo, NotifyEvent, PendingAsk } from "./types.js";
 
 const log = logger("agents");
 const RANK: Record<AgentStatus, number> = { waiting: 0, working: 1, idle: 2, error: 3, exited: 4 };
+const MAX_AGENTS = 50;
 
 /** Merges agent backends and emits "agents" (list changed) and "notify" (status transitions). */
 export class AgentManager extends EventEmitter {
@@ -63,7 +64,12 @@ export class AgentManager extends EventEmitter {
       log.debug(`${b.kind} list failed`, e);
       return this.snapshot.filter((a) => a.backend === b.kind);
     })));
-    const merged = lists.flat().sort((a, b) => RANK[a.status] - RANK[b.status] || a.age - b.age);
+    const merged = lists.flat().sort((a, b) => RANK[a.status] - RANK[b.status] || a.age - b.age).slice(0, MAX_AGENTS);
+    // Every device gets this list; long fields from a large context would bloat each update.
+    for (const a of merged) {
+      a.name = a.name.slice(0, 80);
+      a.last = a.last.slice(0, 200);
+    }
     this.detectTransitions(merged);
     const key = JSON.stringify(merged.map((a) => [a.id, a.status, a.name, a.last, a.attn]));
     this.snapshot = merged;
@@ -124,6 +130,7 @@ export class AgentManager extends EventEmitter {
   kill(id: string): Promise<void> { return this.route(id).kill(id); }
   tail(id: string, n: number): Promise<string[]> { return this.route(id).tail(id, n); }
   last(id: string): Promise<string> { return this.route(id).last(id); }
-  permit(id: string, allow: boolean): Promise<void> { return this.route(id).permit(id, allow); }
+  permit(id: string, allow: boolean, message?: string): Promise<void> { return this.route(id).permit(id, allow, message); }
+  pending(id: string): Promise<PendingAsk | null> { return this.route(id).pending(id); }
   termTarget(id: string): ReturnType<AgentBackend["termTarget"]> { return this.route(id).termTarget(id); }
 }

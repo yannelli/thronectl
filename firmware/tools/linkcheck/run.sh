@@ -12,7 +12,7 @@ work="$(mktemp -d)"
 trap 'kill $(jobs -p) 2>/dev/null || true; rm -rf "$work"' EXIT
 
 g++ -std=c++17 -O1 -g -DLGFX_LINUX_FB -I"$fw/src" -I"$libs/ArduinoJson/src" -I"$libs/M5GFX/src" -I"$mb/include" \
-  "$here/linkcheck.cpp" "$fw/src/net/link.cpp" "$fw/src/net/crypto.cpp" "$fw/src/core/settings.cpp" "$fw/src/core/updater.cpp" \
+  "$here/linkcheck.cpp" "$fw/src/net/link.cpp" "$fw/src/net/crypto.cpp" "$fw/src/core/settings.cpp" "$fw/src/core/led.cpp" "$fw/src/core/updater.cpp" \
   "$mblib/libmbedcrypto.a" -o "$work/linkcheck"
 
 (cd "$repo/daemon" && { [ -d node_modules ] || npm install --silent; } && npm run -s build)

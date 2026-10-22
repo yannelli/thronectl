@@ -166,6 +166,7 @@ char asciiFallback(uint32_t cp) {
 
 class Terminal : public Screen {
  public:
+  bool typing() const override { return true; }
   Terminal(std::string agent, std::string title) : agent_(std::move(agent)), title_(std::move(title)) {
     small_ = settings().termFont == 0;
     cols_ = small_ ? 60 : 40;

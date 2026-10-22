@@ -1,8 +1,9 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { which } from "./env.js";
 import { configDir } from "./paths.js";
 
@@ -74,17 +75,19 @@ function githubRepo(root: string): string | undefined {
   }
 }
 
+const run = promisify(execFile);
+
 /** Downloads the latest release image with the GitHub CLI (works for private repos). */
-function releaseFirmware(root: string, note: (s: string) => void): Firmware | undefined {
+async function releaseFirmware(root: string, note: (s: string) => void): Promise<Firmware | undefined> {
   const repo = githubRepo(root);
-  if (!repo) return undefined;
+  if (!repo || process.env.THRONECTL_NO_RELEASES) return undefined;
   if (!which("gh")) {
     note("GitHub CLI (gh) not found: cannot fetch release firmware.");
     return undefined;
   }
   let rel: { tagName: string; assets: { name: string }[] };
   try {
-    rel = JSON.parse(execFileSync("gh", ["release", "view", "--repo", repo, "--json", "tagName,assets"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+    rel = JSON.parse((await run("gh", ["release", "view", "--repo", repo, "--json", "tagName,assets"], { encoding: "utf8" })).stdout);
   } catch (e) {
     note(`gh release view failed: ${(e as Error).message.split("\n")[0]}`);
     return undefined;
@@ -94,12 +97,10 @@ function releaseFirmware(root: string, note: (s: string) => void): Firmware | un
   const dir = join(configDir(), "firmware");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, asset.name);
-  const gh = (pattern: string): void => {
-    execFileSync("gh", ["release", "download", rel.tagName, "--repo", repo, "--pattern", pattern, "--dir", dir, "--clobber"], { stdio: "ignore" });
-  };
+  const gh = (pattern: string) => run("gh", ["release", "download", rel.tagName, "--repo", repo, "--pattern", pattern, "--dir", dir, "--clobber"]);
   if (!existsSync(file)) {
-    gh(asset.name);
-    if (rel.assets.some((a) => a.name === `${asset.name}.sha256`)) gh(`${asset.name}.sha256`);
+    await gh(asset.name);
+    if (rel.assets.some((a) => a.name === `${asset.name}.sha256`)) await gh(`${asset.name}.sha256`);
   }
   const sum = `${file}.sha256`;
   if (existsSync(sum) && readFileSync(sum, "utf8").trim().split(/\s+/)[0] !== sha256(readFileSync(file))) {
@@ -118,10 +119,10 @@ function localFirmware(root: string): Firmware | undefined {
 }
 
 /** The newest firmware available from the latest GitHub release or a local build. */
-export function findFirmware(note: (s: string) => void): Firmware | undefined {
+export async function findFirmware(note: (s: string) => void): Promise<Firmware | undefined> {
   const root = repoRoot();
   if (!root) return undefined;
-  const found = [releaseFirmware(root, note), localFirmware(root)].filter((f): f is Firmware => !!f);
+  const found = [await releaseFirmware(root, note), localFirmware(root)].filter((f): f is Firmware => !!f);
   return found.sort((a, b) => compareVersions(b.version, a.version))[0];
 }
 

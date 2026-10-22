@@ -4,7 +4,7 @@ import type { Config } from "../config.js";
 import { which } from "../env.js";
 import { harnessColor } from "../harness.js";
 import { expandHome } from "../paths.js";
-import type { AgentBackend, AgentInfo, AgentStatus, CreateParams, HarnessInfo, ModeInfo, TermTarget } from "./types.js";
+import type { PendingAsk, AgentBackend, AgentInfo, AgentStatus, CreateParams, HarnessInfo, ModeInfo, TermTarget } from "./types.js";
 
 /** Paseo lists mode labels only; these are the IDs `paseo run --mode` takes. */
 const MODE_IDS: Record<string, Record<string, string>> = {
@@ -32,6 +32,8 @@ interface PaseoProviderRow {
 
 interface PermitRow {
   agentId: string;
+  name?: string;
+  description?: string;
 }
 
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
@@ -42,6 +44,7 @@ export class PaseoBackend extends EventEmitter implements AgentBackend {
   private checkedAt = 0;
   private known = new Set<string>();
   private cache?: { at: number; list: AgentInfo[] };
+  private permits: PermitRow[] = [];
 
   constructor(private readonly cfg: () => Config) {
     super();
@@ -100,13 +103,16 @@ export class PaseoBackend extends EventEmitter implements AgentBackend {
       const provider = (r.provider ?? "").split("/")[0];
       let status = mapStatus(r.status);
       if (waiting.has(r.id)) status = "waiting";
+      const ask = permits.find((p) => p.agentId === r.id);
       return {
         id: r.id, name: r.name ?? r.id.slice(0, 7), harness: `paseo:${provider}`, backend: "paseo",
-        status, cwd: r.cwd ?? "", age: parseAge(r.created), attn: status === "waiting", last: "",
+        status, cwd: r.cwd ?? "", age: parseAge(r.created), attn: status === "waiting",
+        last: ask ? [ask.name, ask.description].filter((s) => s && s !== "-").join(": ") : "",
       };
     });
     this.known = new Set(list.map((a) => a.id));
     this.cache = { at: Date.now(), list };
+    this.permits = permits;
     return list;
   }
 
@@ -156,8 +162,17 @@ export class PaseoBackend extends EventEmitter implements AgentBackend {
     return block.join("\n").trim();
   }
 
-  async permit(id: string, allow: boolean): Promise<void> {
-    await this.run(["permit", allow ? "allow" : "deny", id]);
+  async pending(id: string): Promise<PendingAsk | null> {
+    this.cache = undefined;
+    await this.list();
+    const ask = this.permits.find((p) => p.agentId === id);
+    return ask ? { tool: ask.name ?? "", text: ask.description && ask.description !== "-" ? ask.description : "" } : null;
+  }
+
+  async permit(id: string, allow: boolean, message?: string): Promise<void> {
+    const args = ["permit", allow ? "allow" : "deny", id];
+    if (!allow && message) args.push("--message", message);
+    await this.run(args);
     this.cache = undefined;
     this.emit("changed");
   }

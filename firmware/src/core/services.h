@@ -1,4 +1,5 @@
 #pragma once
+#include "led.h"
 #include "platform.h"
 #include "settings.h"
 #include <ArduinoJson.h>
@@ -100,8 +101,10 @@ class SystemApi {
   virtual bool charging() const = 0;
   virtual float batteryVolts() const = 0;
   virtual void setBrightness(uint8_t b) = 0;
+  /** Puts the panel to sleep. The backlight and the LED share one supply, set by setBrightness. */
+  virtual void setPanelSleep(bool asleep) {}
   virtual void setRotationFlipped(bool flipped) = 0;
-  virtual void setLed(uint16_t color565, uint8_t brightness) = 0;
+  virtual void setLed(Rgb c) = 0;
   virtual void setCpuMhz(uint16_t mhz) = 0;
   virtual uint32_t freeHeap() const = 0;
   virtual uint32_t minFreeHeap() const = 0;
@@ -118,6 +121,12 @@ class SystemApi {
 
 struct SdImage {
   std::string path, name;
+  uint32_t size = 0;
+};
+
+struct SdEntry {
+  std::string name;
+  bool dir = false;
   uint32_t size = 0;
 };
 
@@ -141,9 +150,16 @@ class OtaApi {
   virtual uint32_t openSd(const std::string& path) = 0;
   virtual int readSd(uint8_t* buf, size_t len) = 0;
   virtual void closeSd() = 0;
-  /** Small whole-file reads and writes on the card, for the settings backup. */
+  /** Small whole-file reads and writes on the card, for the settings backup. They set error() on failure. */
   virtual bool sdWriteFile(const std::string& path, const std::string& data) { return false; }
   virtual bool sdReadFile(const std::string& path, std::string& out) { return false; }
+  /** Folders first, then files, sorted by name. Hidden entries are left out. */
+  virtual bool sdList(const std::string& dir, std::vector<SdEntry>& out) { return false; }
+  virtual bool sdMkdir(const std::string& path) { return false; }
+  /** True when a card answers but holds no FAT file system (exFAT, for example). */
+  virtual bool sdNeedsFormat() const { return false; }
+  /** Erases the card and makes one FAT32 volume. */
+  virtual bool sdFormat() { return false; }
 };
 
 struct Services {

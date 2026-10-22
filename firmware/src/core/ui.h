@@ -13,6 +13,8 @@ class Screen {
   virtual void draw(Canvas& c) = 0;
   virtual bool statusBar() const { return true; }
   virtual bool isModal() const { return false; }
+  /** True while the screen takes typed text, so space and letters are not shortcuts. */
+  virtual bool typing() const { return false; }
   /** True for screens that show live host stats; others get them at the slower dimmed rate. */
   virtual bool wantsStats() const { return false; }
   /** Voice transcript for this screen. Return false to use the default (new agent). */

@@ -125,6 +125,8 @@ Events (host to device):
 
 Keepalive: the device sends `ping` every 10 s. Either side closes the connection after 30 s with no frames.
 
+Size limits: the device has no PSRAM, so the host sends no JSON message over 32 KB. An event that is too large is dropped. A reply that is too large becomes an error reply ("reply too large for the device"). `agent.tail` keeps the newest lines that fit in 12 KB, each cut to 400 characters. The device drops a reply it cannot hold and fails that call, instead of running out of memory.
+
 ## Methods
 
 | Method | Params | Result |
@@ -144,7 +146,8 @@ Keepalive: the device sends `ping` every 10 s. Either side closes the connection
 | `agent.tail` | `{"id":"...","n":40}` | `{"lines":["..."]}` |
 | `agent.last` | `{"id":"..."}` | `{"text":"..."}` (last assistant message) |
 | `agent.speak` | `{"id":"...","voice":""}` | `{"ms":4200}` (reads the last reply aloud on the device speaker) |
-| `agent.permit` | `{"id":"...","allow":true}` | `{}` |
+| `agent.permit` | `{"id":"...","allow":true,"message":""}` | `{}` (a deny with a `message` sends that text to the agent) |
+| `agent.pending` | `{"id":"..."}` | `{"tool":"Bash","text":"..."}` (what a waiting agent asks; empty when nothing waits) |
 | `term.open` | `{"agent":"<id>"}` or `{"shell":true,"cwd":"~"}`, plus `"cols":40,"rows":15` | `{"tid":1}` |
 | `term.input` | `{"tid":1,"d":"ls\r"}` | `{}` |
 | `term.close` | `{"tid":1}` | `{}` |
@@ -155,6 +158,9 @@ Keepalive: the device sends `ping` every 10 s. Either side closes the connection
 | `tts.stop` | `{}` | `{}` |
 | `ota.read` | `{"off":0,"n":8192}` | `{"n":8192}` (the bytes arrive first, as one kind `0x04` frame) |
 | `ota.done` | `{"ok":true,"err":"","dest":"flash"\|"sd"}` | `{}` |
+| `update.check` | `{"force":false}` | `{"fw":"0.3.0","latest":"0.4.0","source":"GitHub release v0.4.0","size":1321549,"newer":true,"linkOk":true,"host":"0.4.0","hostUpdate":true,"note":""}` |
+| `update.firmware` | `{}` | `{"version":"0.4.0","size":1321549}`, then an `ota.offer` event with `"asked":true` |
+| `update.host` | `{}` | `{"started":true,"log":"<path>"}` (runs `thronectl update --yes` on the host; the daemon restarts) |
 
 ## Types
 
@@ -208,7 +214,7 @@ Keepalive: the device sends `ping` every 10 s. Either side closes the connection
 | `term` | Terminal update (see below) |
 | `term_exit` | `{"tid":1,"code":0}` |
 | `tts` | `{"state":"start","rate":16000}` or `{"state":"end"}` |
-| `ota.offer` | `{"ver":"0.2.0","size":1182944,"sha256":"<hex>","from":"<host name>"}` |
+| `ota.offer` | `{"ver":"0.2.0","size":1182944,"sha256":"<hex>","from":"<host name>","asked":false}` |
 
 ## Terminal updates
 
@@ -236,7 +242,7 @@ The host runs the terminal emulator. The device draws a grid of cells.
 
 `thronectl flash` (and `thronectl update`) send an app image to connected devices. A merged flash image is cut at its first app partition, so the device always gets an app image.
 
-1. The host sends the `ota.offer` event. The device asks the user. If the user declines, the device calls `ota.done` with `ok:false`.
+1. The host sends the `ota.offer` event. The device asks the user, unless `asked` is true (the user asked for it on the device with `update.firmware`). If the user declines, the device calls `ota.done` with `ok:false`.
 2. The device calls `ota.read` for each chunk, in order, with up to two calls in flight. A chunk is 16 KB or less.
 3. When all bytes are in, the device checks the SHA-256, then calls `ota.done`.
 4. A standalone install writes the spare app slot and restarts into it (`dest:"flash"`).

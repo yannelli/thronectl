@@ -6,8 +6,10 @@ import { logger } from "./log.js";
 import { expandHome } from "./paths.js";
 import { killProc, listProcs } from "./procs.js";
 import { listProjects } from "./projects.js";
-import type { OtaStore } from "./ota.js";
-import { KIND_MIC, KIND_OTA, KIND_SPK, type DevicePeer, type SecureChannel } from "./session.js";
+import { canUpdateHost, latestFirmware, startHostUpdate } from "./devupdate.js";
+import { compareVersions, OTA_MIN_FW, type OtaStore } from "./ota.js";
+import { VERSION } from "./paths.js";
+import { KIND_JSON, KIND_MIC, KIND_OTA, KIND_SPK, type DevicePeer, type SecureChannel } from "./session.js";
 import type { Stats } from "./stats.js";
 import { PtyTerm, TermView, type TermUpdate } from "./terminal.js";
 import { transcribe } from "./voice/stt.js";
@@ -45,6 +47,22 @@ const str = (p: Params, k: string, required = true): string => {
 const num = (p: Params, k: string, def: number): number => (typeof p[k] === "number" ? (p[k] as number) : def);
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, Math.round(v)));
 
+/** Largest JSON message the device parses safely next to its other buffers (it has no PSRAM). */
+export const DEVICE_JSON_MAX = 32 * 1024;
+
+/** The newest lines that fit in `maxBytes`, each cut to `maxChars`. */
+export function fitLines(lines: string[], maxBytes: number, maxChars: number): string[] {
+  const out: string[] = [];
+  let bytes = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i].length > maxChars ? `${lines[i].slice(0, maxChars - 3)}...` : lines[i];
+    bytes += Buffer.byteLength(l) + 4;
+    if (bytes > maxBytes) break;
+    out.unshift(l);
+  }
+  return out;
+}
+
 /** One authenticated device connection. */
 export class DeviceSession {
   readonly topics = new Set<string>();
@@ -71,7 +89,17 @@ export class DeviceSession {
   }
 
   event(e: string, d: unknown): boolean {
-    return this.ch.sendJson({ t: "ev", e, d });
+    return this.send({ t: "ev", e, d }, `event ${e}`);
+  }
+
+  /** Sends one JSON message, or drops it when the device could not hold it. */
+  private send(msg: object, what: string): boolean {
+    const body = Buffer.from(JSON.stringify(msg), "utf8");
+    if (body.length > DEVICE_JSON_MAX) {
+      log.warn(`dropped ${what} for "${this.device.name}": ${body.length} bytes is over the device limit`);
+      return false;
+    }
+    return this.ch.sendRaw(KIND_JSON, body);
   }
 
   close(): void {
@@ -84,7 +112,7 @@ export class DeviceSession {
     try {
       if (!handler) throw new Error(`unknown method ${m.m}`);
       const r = await handler((m.p as Params) ?? {});
-      this.ch.sendJson({ t: "res", id: m.id, ok: true, r: r ?? {} });
+      if (!this.send({ t: "res", id: m.id, ok: true, r: r ?? {} }, `reply to ${m.m}`)) throw new Error("reply too large for the device");
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
       log.debug(`${m.m} failed: ${err}`);
@@ -130,7 +158,7 @@ export class DeviceSession {
       "agent.send": async (p) => { await a.send(str(p, "id"), str(p, "text")); return {}; },
       "agent.stop": async (p) => { await a.stop(str(p, "id")); return {}; },
       "agent.kill": async (p) => { await a.kill(str(p, "id")); return {}; },
-      "agent.tail": async (p) => ({ lines: await a.tail(str(p, "id"), clamp(num(p, "n", 40), 1, 200)) }),
+      "agent.tail": async (p) => ({ lines: fitLines(await a.tail(str(p, "id"), clamp(num(p, "n", 40), 1, 200)), 12_000, 400) }),
       "agent.last": async (p) => ({ text: (await a.last(str(p, "id"))).slice(0, 4000) }),
       "agent.speak": async (p) => {
         const text = await a.last(str(p, "id"));
@@ -138,6 +166,29 @@ export class DeviceSession {
         return { ms: await this.say(text, str(p, "voice", false)) };
       },
       // The data goes out as one KIND_OTA frame (u32be offset, bytes) just before this reply.
+      "update.check": async (p) => {
+        const { fw, note } = await latestFirmware(p.force === true);
+        const cur = this.device.fw;
+        return {
+          fw: cur, latest: fw?.version ?? "", source: fw?.source ?? "", size: fw?.app.length ?? 0,
+          newer: !!fw && compareVersions(fw.version, cur) > 0, linkOk: compareVersions(cur, OTA_MIN_FW) >= 0,
+          host: VERSION, hostUpdate: canUpdateHost(), note: note.slice(0, 300),
+        };
+      },
+      // The device asked for this, so the offer carries `asked` and the device skips its own prompt.
+      "update.firmware": async () => {
+        const { fw } = await latestFirmware();
+        if (!fw) throw new Error("no firmware found on the host (needs gh for releases, or a build in firmware/dist)");
+        this.ctx.ota.offer(this.device.id, this.device.name, fw);
+        this.event("ota.offer", { ver: fw.version, size: fw.app.length, sha256: fw.sha256, from: this.ctx.host().name, asked: true });
+        log.info(`${this.device.name} asked for firmware ${fw.version || "(no version)"}`);
+        return { version: fw.version, size: fw.app.length };
+      },
+      "update.host": () => {
+        const logPath = startHostUpdate();
+        log.info(`${this.device.name} started a host update (log: ${logPath})`);
+        return { started: true, log: logPath };
+      },
       "ota.read": (p) => {
         const off = num(p, "off", -1);
         const chunk = this.ctx.ota.read(this.device.id, off, clamp(num(p, "n", 8192), 1, 65536));
@@ -153,7 +204,14 @@ export class DeviceSession {
         log.info(`"${this.device.name}" firmware update ${ok ? `done (${str(p, "dest", false) || "flash"})` : `failed: ${str(p, "err", false)}`}`);
         return {};
       },
-      "agent.permit": async (p) => { await a.permit(str(p, "id"), p.allow === true); return {}; },
+      "agent.permit": async (p) => {
+        await a.permit(str(p, "id"), p.allow === true, str(p, "message", false).slice(0, 2000) || undefined);
+        return {};
+      },
+      "agent.pending": async (p) => {
+        const ask = await a.pending(str(p, "id"));
+        return { tool: (ask?.tool ?? "").slice(0, 80), text: (ask?.text ?? "").slice(0, 3000) };
+      },
       "term.open": (p) => this.openTerm(p),
       "term.input": (p) => {
         const view = this.terms.get(num(p, "tid", -1));

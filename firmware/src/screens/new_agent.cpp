@@ -45,6 +45,8 @@ class NewAgent : public Screen {
     return false;
   }
 
+  bool typing() const override { return step_ == PROMPT; }
+
   bool onVoiceText(const std::string& text) override {
     if (step_ == LAUNCH) return true;
     std::string cur = prompt_.text;

@@ -5,6 +5,11 @@
 bool ListView::onKey(const KeyEvent& e) {
   if (count == 0) return false;
   int old = sel;
+  if (e.plain() && (e.key == '[' || e.key == ']')) {
+    sel += e.key == ']' ? visible() : -visible();
+    clamp();
+    return sel != old;
+  }
   switch (navKey(e)) {
     case K_UP: sel = sel > 0 ? sel - 1 : count - 1; break;
     case K_DOWN: sel = sel < count - 1 ? sel + 1 : 0; break;

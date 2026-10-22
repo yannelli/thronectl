@@ -46,7 +46,13 @@ before(async () => {
   daemon.cfg.paseo.enabled = false;
   daemon.cfg.projectRoots = [];
   daemon.cfg.shell = "/bin/sh";
-  daemon.cfg.harness = { echo: { bin: "/bin/sh", name: "Echo", args: ["-c", "echo READY $0; while read l; do echo got $l; done"] } };
+  daemon.cfg.harness = {
+    echo: { bin: "/bin/sh", name: "Echo", args: ["-c", "echo READY $0; while read l; do echo got $l; done"] },
+    ask: {
+      bin: "/bin/sh", name: "Ask",
+      args: ["-c", "seq 1 30; echo 'Do you want to run: rm -rf build? [y/n]'; read l; echo \"got $l\"; head -c 60000 /dev/zero | tr '\\0' x; echo; while read l; do echo got $l; done"],
+    },
+  };
   daemon.broker.on("request", (r: { id: string }) => setTimeout(() => daemon.broker.answer(r.id, approve), 50));
   await daemon.start();
 });
@@ -159,4 +165,45 @@ test("each device gets stats at the interval it asked for", async () => {
   assert.equal(counts.off, 0, "no stats topic means no stats");
   fast.close();
   slow.close();
+});
+
+test("approvals: pending ask, deny with a comment, and output capped for the device", async () => {
+  const dev = new SimDevice(generateKeyPair(), "Cardputer-Ask", new Map());
+  await dev.connect("127.0.0.1", port);
+  const { id } = await dev.call<{ id: string }>("agent.create", { harness: "direct:ask", cwd: "~", prompt: "" });
+  await until(async () => (await dev.call<{ agents: { id: string; status: string }[] }>("agents.list")).agents.find((a) => a.id === id && a.status === "waiting"), 12_000);
+  const ask = await dev.call<{ tool: string; text: string }>("agent.pending", { id });
+  assert.equal(ask.tool, "Ask");
+  assert.match(ask.text, /Do you want to run: rm -rf build/);
+  await dev.call("agent.permit", { id, allow: false, message: "use make clean" });
+  await until(async () => (await dev.call<{ lines: string[] }>("agent.tail", { id, n: 200 })).lines.join("\n").includes("use make clean") || undefined);
+  const { lines } = await until(async () => {
+    const r = await dev.call<{ lines: string[] }>("agent.tail", { id, n: 200 });
+    return r.lines.join("").includes("xxxx") ? r : undefined;
+  });
+  assert.ok(Buffer.byteLength(JSON.stringify(lines)) <= 12_000 + 1024, "tail fits the device budget");
+  assert.ok(lines.every((l) => l.length <= 400));
+  await dev.call("agent.kill", { id });
+  dev.close();
+});
+
+test("device asks the host for an update and gets an offer it does not need to confirm", async () => {
+  process.env.THRONECTL_NO_RELEASES = "1";  // local builds only, no GitHub
+  const dev = new SimDevice(generateKeyPair(), "Cardputer-Update", new Map());
+  const offers: Record<string, unknown>[] = [];
+  dev.onEvent = (e, d) => { if (e === "ota.offer") offers.push(d as Record<string, unknown>); };
+  await dev.connect("127.0.0.1", port);
+  const info = await dev.call<{ fw: string; latest: string; newer: boolean; host: string; hostUpdate: boolean }>("update.check", { force: true });
+  assert.ok(info.host && info.fw, "reports both versions");
+  if (!info.latest) {
+    await assert.rejects(dev.call("update.firmware"), /no firmware found/);
+  } else {
+    const r = await dev.call<{ version: string }>("update.firmware");
+    assert.equal(r.version, info.latest);
+    const offer = await until(() => offers[0]);
+    assert.equal(offer.asked, true);
+    assert.equal(offer.ver, info.latest);
+  }
+  delete process.env.THRONECTL_NO_RELEASES;
+  dev.close();
 });

@@ -2,9 +2,12 @@
 #include <cerrno>
 #include <fcntl.h>
 #include "../core/settings.h"
+#include <new>
 #ifdef ARDUINO
+#include <esp_heap_caps.h>
 #include <lwip/netdb.h>
 #include <lwip/sockets.h>
+static size_t freeHeap() { return heap_caps_get_free_size(MALLOC_CAP_8BIT); }
 #else
 // Host build for tools/linkcheck: same BSD socket API.
 #include <arpa/inet.h>
@@ -15,7 +18,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 static uint32_t millis() { return nowMs(); }
+static size_t freeHeap() { return SIZE_MAX; }
 #endif
+// Parsing a JSON message takes about twice its size; keep this much heap free on top of that.
+static constexpr size_t HEAP_RESERVE = 24 * 1024;
 
 static constexpr uint8_t KIND_JSON = 1, KIND_MIC = 2, KIND_SPK = 3, KIND_OTA = 4;
 static constexpr size_t MAX_FRAME = 65536 + 17;
@@ -160,40 +166,63 @@ bool Link::receive() {
     else return false;
   }
   size_t off = 0;
-  while (rx_.size() - off >= 4 && fd_ >= 0) {
-    const uint8_t* p = rx_.data() + off;
+  while (fd_ >= 0 && rx_.size() - off >= 4) {
+    uint8_t* p = rx_.data() + off;
     size_t len = (size_t)p[0] << 24 | (size_t)p[1] << 16 | (size_t)p[2] << 8 | p[3];
     if (len > MAX_FRAME) {
       fail("Frame too large");
       return true;
     }
-    if (rx_.size() - off < 4 + len) break;
-    std::vector<uint8_t> frame(p + 4, p + 4 + len);
+    if (rx_.size() - off < 4 + len) {
+      if (rx_.capacity() < off + 4 + len) rx_.reserve(off + 4 + len);  // one allocation, not repeated doubling
+      break;
+    }
     off += 4 + len;
-    handleFrame(frame.data(), frame.size());
+    handleFrame(p + 4, len);  // decrypts in place; the bytes are consumed either way
   }
   if (fd_ >= 0 && off) rx_.erase(rx_.begin(), rx_.begin() + off);
+  if (rx_.capacity() > 16384 && rx_.size() < 4096) rx_.shrink_to_fit();
   return true;
 }
 
-void Link::handleFrame(const uint8_t* data, size_t len) {
+/** Fails the call a too-large reply belonged to, so its screen shows an error instead of waiting. */
+void Link::dropReply(const char* json, size_t len, const char* why) {
+  std::string head(json, len < 48 ? len : 48);
+  size_t at = head.find("\"id\":");
+  if (head.find("\"t\":\"res\"") == std::string::npos || at == std::string::npos) return;
+  auto it = pending_.find((uint32_t)strtoul(head.c_str() + at + 5, nullptr, 10));
+  if (it == pending_.end()) return;
+  RpcCallback cb = it->second.cb;
+  pending_.erase(it);
+  std::string w = why;
+  deferred_.push_back([cb, w](bool, JsonVariantConst, const char*) { cb(false, JsonVariantConst(), w.c_str()); });
+}
+
+void Link::handleFrame(uint8_t* data, size_t len) {
   if (!sealed_) {
     JsonDocument doc;
     if (deserializeJson(doc, (const char*)data, len)) return fail("Bad handshake message");
     return handleHostHello(doc);
   }
   if (len < 17) return fail("Short frame");
-  std::vector<uint8_t> plain(len - 16);
-  if (!tcrypto::open(keys_.hd, rxCtr_++, data, len, plain.data())) return fail("Decryption failed");
-  uint8_t kind = plain[0];
+  if (!tcrypto::open(keys_.hd, rxCtr_++, data, len, data)) return fail("Decryption failed");
+  uint8_t kind = data[0];
+  const uint8_t* body = data + 1;
+  size_t n = len - 17;
   if (kind == KIND_JSON) {
-    JsonDocument doc;
-    if (deserializeJson(doc, (const char*)plain.data() + 1, plain.size() - 1)) return;
-    handleMessage(doc);
+    // A huge reply (a long agent log) must not run the heap out: drop it and fail its call.
+    if (freeHeap() < 2 * n + HEAP_RESERVE) return dropReply((const char*)body, n, "reply too large for the device");
+    try {
+      JsonDocument doc;
+      if (deserializeJson(doc, (const char*)body, n)) return dropReply((const char*)body, n, "reply did not fit in memory");
+      handleMessage(doc);
+    } catch (const std::bad_alloc&) {
+      dropReply((const char*)body, n, "out of memory");
+    }
   } else if (kind == KIND_SPK && onSpeaker && st_ == LinkState::Ready) {
-    onSpeaker(plain.data() + 1, plain.size() - 1);
+    onSpeaker(body, n);
   } else if (kind == KIND_OTA && onOta && st_ == LinkState::Ready) {
-    onOta(plain.data() + 1, plain.size() - 1);
+    onOta(body, n);
   }
 }
 

@@ -7,7 +7,7 @@ import type { Config } from "../config.js";
 import { harnessInfo, resolveHarnesses, type ResolvedHarness } from "../harness.js";
 import { expandHome } from "../paths.js";
 import { PtyTerm } from "../terminal.js";
-import type { AgentBackend, AgentInfo, AgentStatus, CreateParams, HarnessInfo, TermTarget } from "./types.js";
+import type { PendingAsk, AgentBackend, AgentInfo, AgentStatus, CreateParams, HarnessInfo, TermTarget } from "./types.js";
 
 const IDLE_MS = 2500;
 
@@ -128,9 +128,22 @@ export class DirectBackend extends EventEmitter implements AgentBackend {
     return a.term.screen().map(stripChrome).filter((s) => s && !CHROME.test(s)).slice(-12).join("\n");
   }
 
-  async permit(id: string, allow: boolean): Promise<void> {
+  async permit(id: string, allow: boolean, message?: string): Promise<void> {
     const a = this.get(id);
     a.term.write(allow ? a.harness.permitYes : a.harness.permitNo);
+    if (allow || !message) return;
+    // The harness redraws its input box after the deny; type the message into it.
+    await new Promise((r) => setTimeout(r, 600));
+    await this.send(id, message);
+  }
+
+  async pending(id: string): Promise<PendingAsk | null> {
+    const a = this.get(id);
+    if (a.status !== "waiting") return null;
+    const lines = a.term.screen().map(stripChrome).filter((s) => s && !CHROME.test(s));
+    let at = lines.length - 1;
+    while (at > 0 && !WAITING.some((re) => re.test(lines[at]))) at--;
+    return { tool: a.harness.name, text: lines.slice(Math.max(0, at - 10), at + 6).join("\n") };
   }
 
   termTarget(id: string): TermTarget {
