@@ -12,3 +12,4 @@ firmware/dist/
 firmware/tools/keyfuzz/build/
 firmware/tools/blecheck/build/
 firmware/tools/ledcheck/build/
+firmware/tools/storecheck/build/

@@ -112,6 +112,8 @@ Settings& settings();
 void settingsBind(SettingsStore* store);
 void settingsLoad();
 void settingsSave();
+/** True when saved settings JSON asks for Bluetooth at boot. A text search, since it runs before setup(). */
+bool bluetoothAtBoot(const std::string& json);
 
 std::string toHex(const uint8_t* data, size_t len);
 bool fromHex(const std::string& hex, uint8_t* out, size_t len);

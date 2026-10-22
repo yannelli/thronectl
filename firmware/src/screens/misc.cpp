@@ -153,6 +153,7 @@ class About : public Screen {
     rows.push_back({"Chip", s.sys->chipInfo()});
     snprintf(b, sizeof b, "%u KB free, %u KB low", (unsigned)(s.sys->freeHeap() / 1024), (unsigned)(s.sys->minFreeHeap() / 1024));
     rows.push_back({"Memory", b});
+    rows.push_back({"Settings", s.sys->storageInfo()});
     rows.push_back({"Uptime", fmtAge(s.sys->uptimeS())});
     snprintf(b, sizeof b, "%d%%  %.2f V%s", s.sys->batteryPct(), s.sys->batteryVolts(), s.sys->charging() ? "  charging" : "");
     rows.push_back({"Battery", b});

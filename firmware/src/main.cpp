@@ -12,6 +12,7 @@ static KeyboardHal keyboard;
 static AudioHal audio;
 static SystemHal sys;
 static NvsStore nvs;
+static FlashStore flash;
 static OtaHal ota;
 static Net net;
 static Link hostLink;
@@ -20,7 +21,8 @@ static Canvas* canvas = nullptr;
 static bool btAtBoot = false;
 
 // Arduino frees the Bluetooth controller's memory at boot unless this returns true, so keep it only for Bluetooth users.
-extern "C" bool btInUse() { return btAtBoot = NvsStore::bluetoothAtBoot(); }
+// It runs before setup(), so it mounts the flash volume itself and never formats it.
+extern "C" bool btInUse() { return btAtBoot = bluetoothAtBoot(FlashStore::mount(false) ? flash.load("cfg") : nvs.load("cfg")); }
 static uint32_t lastFrame = 0;
 
 static std::string deviceName() {
@@ -53,7 +55,10 @@ void setup() {
   pinMode(5, INPUT_PULLUP);  // keeps a Cap module on the header off the shared SD lines
   M5.Display.setRotation(1);
   M5.Display.fillScreen(0);
-  settingsBind(&nvs);
+  // Settings live in a flash file and NVS keeps the device key. Under Launcher the partition may hold
+  // another app's files, so it is formatted only when blank; without a volume, settings stay in NVS.
+  bool onFlash = FlashStore::mount(!ota.underLauncher() || FlashStore::blank());
+  settingsBind(onFlash ? static_cast<SettingsStore*>(&flash) : &nvs);
   settingsLoad();
 
   canvas = new Canvas(&M5.Display);

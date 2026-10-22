@@ -216,6 +216,8 @@ The LED shares its power supply with the display backlight. While an LED effect 
 
 **Settings backup.** Back up and Restore open a folder browser on the SD card. Enter or `/` opens a folder, `,` goes up, `n` makes a folder and `s` saves `thronectl-settings.json` in the open folder. Restore lists `.json` files, so backups from 0.3 (`/thronectl/settings.json`) still load. The device remembers the last folder. The backup includes saved Wi-Fi passwords. The device key is not in it, so after a factory reset you pair again.
 
+**Where settings are kept.** Settings, saved Wi-Fi networks, paired hosts and LED effects are in `/thronectl/cfg` on a LittleFS volume in the 1.5 MB `spiffs` flash partition. Each save writes a temporary file and then renames it, so a power cut leaves the old or the new settings. NVS keeps the device key. About shows the space in use. Under Launcher, the partition can hold another app's files, so the device formats it only when it is blank. If a different file system is already there, settings stay in NVS. Factory reset clears both.
+
 The card must be FAT32. exFAT cards (most cards over 32 GB) do not mount: the browser says so and `f` formats the card as FAT32, which erases it. A card that already has a FAT volume is never formatted.
 
 ### Power saving
@@ -376,6 +378,7 @@ docs/       Protocol spec and screenshots
 - Daemon tests: `cd daemon && npm test`. They include an end-to-end run with a simulated device.
 - Simulated device REPL: `thronectl sim`.
 - Bluetooth HAL check: `firmware/tools/blecheck/run.sh` builds `src/hal/ble.cpp` for the host against a fake NimBLE. It checks advertising, the credit window, buffer wrap and reconnects under AddressSanitizer.
+- Settings storage check: `bash firmware/tools/storecheck/run.sh` checks flash saves, power-cut leftovers, wipe and the Bluetooth boot check under AddressSanitizer and UBSan.
 - LED output check: `bash firmware/tools/ledcheck/run.sh` checks shared power, color restore, GRB order, pulse timings, named colors and effects under AddressSanitizer and UBSan.
 - Firmware build: `cd firmware && pio run`. To make the release image: `tools/merge.sh`.
 - Screen snapshots without hardware: `firmware/tools/snapshot/build.sh`, then run the binary it prints with an output folder. It renders every screen to PNG with mock data.

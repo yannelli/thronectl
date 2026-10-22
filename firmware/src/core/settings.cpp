@@ -221,3 +221,7 @@ void settingsLoad() {
 void settingsSave() {
   if (g_store) g_store->save("cfg", settingsToJson(g_settings));
 }
+
+bool bluetoothAtBoot(const std::string& json) {
+  return json.find("\"bluetooth\":true") != std::string::npos || json.find("\"blePairAtBoot\":true") != std::string::npos;
+}

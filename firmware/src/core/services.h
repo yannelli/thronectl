@@ -132,6 +132,8 @@ class SystemApi {
   virtual void reboot() = 0;
   virtual void factoryReset() = 0;
   virtual void powerOff() = 0;
+  /** Where settings are kept and how full that is, for About. */
+  virtual std::string storageInfo() const { return "NVS"; }
 };
 
 struct SdImage {

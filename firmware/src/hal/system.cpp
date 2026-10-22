@@ -128,9 +128,15 @@ void SystemHal::startNtp() {
 
 void SystemHal::reboot() { ESP.restart(); }
 
+std::string SystemHal::storageInfo() const {
+  std::string used = FlashStore::usage();
+  return used.empty() ? "NVS, no flash volume" : "flash " + used;
+}
+
 void SystemHal::factoryReset() {
-  // Only this firmware's namespace: a boot manager such as Launcher keeps its own NVS data.
+  // Only this firmware's NVS namespace and flash folder: a boot manager such as Launcher keeps its own data.
   NvsStore().wipe();
+  FlashStore().wipe();
   ESP.restart();
 }
 
@@ -169,12 +175,6 @@ void NvsStore::save(const char* key, const std::string& value) {
   if (!p.begin(NS, false)) return;
   p.putBytes(key, value.data(), value.size());
   p.end();
-}
-
-bool NvsStore::bluetoothAtBoot() {
-  NvsStore n;
-  std::string cfg = n.load("cfg");
-  return cfg.find("\"bluetooth\":true") != std::string::npos || cfg.find("\"blePairAtBoot\":true") != std::string::npos;
 }
 
 void NvsStore::wipe() {

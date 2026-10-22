@@ -1,6 +1,7 @@
 #pragma once
 #include <FS.h>
 #include <memory>
+#include "../core/filestore.h"
 #include "../core/input.h"
 #include "../core/services.h"
 #include "../net/crypto.h"
@@ -94,6 +95,7 @@ class SystemHal : public SystemApi {
   void reboot() override;
   void factoryReset() override;
   void powerOff() override;
+  std::string storageInfo() const override;
   void startNtp();
 
  private:
@@ -113,8 +115,18 @@ class NvsStore : public SettingsStore {
   void wipe() override;
   bool loadBlob(const char* key, uint8_t* out, size_t len);
   void saveBlob(const char* key, const uint8_t* data, size_t len);
-  /** Reads the saved settings before setup(): true when Bluetooth should be able to start. */
-  static bool bluetoothAtBoot();
+};
+
+/** Settings files on internal flash: LittleFS on the 1.5 MB "spiffs" data partition, mounted at /flash. */
+class FlashStore : public FileStore {
+ public:
+  FlashStore() : FileStore("/flash/thronectl") {}
+  /** Mounts the volume. With mayFormat, formats one that does not mount, such as a blank partition. */
+  static bool mount(bool mayFormat);
+  /** True when the partition was never written, so formatting it cannot erase another app's files. */
+  static bool blank();
+  /** Space used and total, or "" when the volume is not mounted. */
+  static std::string usage();
 };
 
 /** Firmware updates into the spare app slot (Arduino Update), or onto the microSD card for Launcher. */

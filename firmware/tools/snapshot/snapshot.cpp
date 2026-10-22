@@ -122,6 +122,7 @@ class MockSys : public SystemApi {
   void setTimeFromHost(int64_t) override {}
   void reboot() override {}
   void factoryReset() override {}
+  std::string storageInfo() const override { return "flash 8 of 1536 KB"; }
   void powerOff() override {}
 };
 
