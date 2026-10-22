@@ -3,7 +3,7 @@ import type { Socket as UdpSocket } from "node:dgram";
 import { execFile } from "node:child_process";
 import { arch, hostname, platform, userInfo } from "node:os";
 import { AgentManager } from "./agents/manager.js";
-import { loadConfig, type Config } from "./config.js";
+import { loadConfig, saveConfig, type Config } from "./config.js";
 import { controlConnect, startControlServer } from "./control.js";
 import { startDiscovery } from "./discovery.js";
 import { DeviceStore } from "./identity.js";
@@ -13,10 +13,12 @@ import { loadFirmware, OtaStore } from "./ota.js";
 import { formatCode, PairingBroker, type PairRequest } from "./pairing.js";
 import { VERSION } from "./paths.js";
 import { DeviceSession, type HostInfo } from "./rpc.js";
+import { restartService, serviceInstalled } from "./service.js";
 import { Conn, serverHandshake } from "./session.js";
 import { StatsSampler, type Stats } from "./stats.js";
 import { describeStt } from "./voice/stt.js";
 import { describeTts } from "./voice/tts.js";
+import { stopLocalWorker } from "./voice/local/engine.js";
 import { which } from "./env.js";
 
 const log = logger("daemon");
@@ -83,6 +85,7 @@ export class Daemon {
     this.udp?.close();
     this.control?.close();
     this.agents.shutdown();
+    stopLocalWorker();
   }
 
   /** Samples only when a session is due, so each device gets stats at the rate it set in `sub`. */
@@ -144,6 +147,15 @@ export class Daemon {
       recentCwds: () => this.recent,
       addRecentCwd: (cwd) => { this.recent = [cwd, ...this.recent.filter((c) => c !== cwd)].slice(0, 10); },
       ota: this.ota,
+      saveConfig: (cfg) => {
+        saveConfig(cfg);
+        this.cfg = cfg;
+      },
+      restart: () => {
+        if (!serviceInstalled()) throw new Error("the daemon does not run as a login service. Restart it by hand, or run: thronectl install");
+        setTimeout(() => { try { restartService(); } catch (e) { log.warn("restart failed", e); } }, 500);
+        return "The daemon restarts now. The device reconnects.";
+      },
     });
     this.sessions.add(session);
     log.info(`"${device.name}" connected from ${addr} (fw ${device.fw || "?"})`);

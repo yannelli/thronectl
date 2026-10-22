@@ -81,6 +81,11 @@ export function installService(): string {
 }
 
 /** Restarts the login service so it runs the new build. Undefined when no service is installed. */
+/** True when `thronectl install` set up a login service that restartService can restart. */
+export function serviceInstalled(): boolean {
+  return (platform() === "darwin" && existsSync(plistPath())) || (platform() === "linux" && existsSync(unitPath()));
+}
+
 export function restartService(): string | undefined {
   if (platform() === "darwin" && existsSync(plistPath())) {
     execFileSync("launchctl", ["kickstart", "-k", `gui/${userInfo().uid}/${LABEL}`]);

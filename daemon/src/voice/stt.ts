@@ -4,14 +4,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { apiKey, type Config } from "../config.js";
 import { which } from "../env.js";
-import { encodeWav, rms } from "./wav.js";
+import { localAddonOk, transcribeLocal } from "./local/engine.js";
+import { resolveModel } from "./local/models.js";
+import { encodeWav, resample, rms } from "./wav.js";
 
-export type SttProvider = "openai" | "groq" | "command";
+export type SttProvider = "local" | "openai" | "groq" | "command";
+
+/** True when sherpa-onnx loads and the configured local STT model is installed. */
+export function localSttReady(cfg: Config): boolean {
+  return localAddonOk().ok && resolveModel(cfg, cfg.voice.local.stt)?.model.kind === "stt";
+}
 
 export function pickStt(cfg: Config): SttProvider | undefined {
   const p = cfg.voice.stt.provider;
   if (p === "off") return undefined;
   if (p !== "auto") return p;
+  if (cfg.voice.local.enabled !== false && localSttReady(cfg)) return "local";
   if (apiKey(cfg, "OPENAI_API_KEY")) return "openai";
   if (apiKey(cfg, "GROQ_API_KEY")) return "groq";
   if (cfg.voice.stt.command) return "command";
@@ -20,11 +28,18 @@ export function pickStt(cfg: Config): SttProvider | undefined {
 
 export function describeStt(cfg: Config): string {
   const p = pickStt(cfg);
-  if (!p) return "none (set OPENAI_API_KEY or GROQ_API_KEY in ~/.config/thronectl/env, or voice.stt.command)";
+  if (!p) return "none (run thronectl voice install, set OPENAI_API_KEY or GROQ_API_KEY in ~/.config/thronectl/env, or voice.stt.command)";
+  if (p === "local") {
+    const id = cfg.voice.local.stt;
+    const r = resolveModel(cfg, id);
+    if (!r) return `local (${id}, not installed: run thronectl voice install)`;
+    const a = localAddonOk();
+    return a.ok ? `local (${id}${r.source === "paseo" ? ", from Paseo" : ""})` : `local (${id}, sherpa-onnx-node not available: ${a.error})`;
+  }
   return p === "command" ? `command: ${cfg.voice.stt.command}` : `${p} (${sttModel(cfg, p)})`;
 }
 
-function sttModel(cfg: Config, p: SttProvider): string {
+function sttModel(cfg: Config, p: Exclude<SttProvider, "local">): string {
   return cfg.voice.stt.model || (p === "groq" ? "whisper-large-v3-turbo" : "gpt-4o-mini-transcribe");
 }
 
@@ -33,6 +48,7 @@ export async function transcribe(cfg: Config, pcm: Buffer, rate: number): Promis
   if (rms(pcm) < 0.002) return "";
   const provider = pickStt(cfg);
   if (!provider) throw new Error("No speech-to-text provider configured");
+  if (provider === "local") return transcribeLocal(cfg, resample(pcm, rate, 16000));
   const wav = encodeWav(pcm, rate);
   if (provider === "command") return runCommand(cfg.voice.stt.command!, wav);
   const url = provider === "groq"

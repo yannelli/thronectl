@@ -27,6 +27,8 @@ Screen* makeUpdate();
 Screen* makeSdUpdate();
 /** SD folder browser: `save` picks a folder for the settings backup, otherwise it picks a backup to restore. */
 Screen* makeSdBrowser(bool save);
+/** The daemon's own settings. An empty group lists the groups. */
+Screen* makeHostConfig(const std::string& group, const std::string& title);
 /** Loads a settings backup from the SD card and rebuilds the screens. Shows a toast on failure. */
 void restoreSettingsFile(const std::string& path);
 /** Destination picker shared by the home screen and the Opt+Enter shortcut. */

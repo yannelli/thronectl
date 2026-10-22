@@ -10,18 +10,28 @@ export interface HarnessOverride {
 }
 
 export interface SttConfig {
-  provider: "auto" | "openai" | "groq" | "command" | "off";
+  provider: "auto" | "local" | "openai" | "groq" | "command" | "off";
   model?: string;
   language?: string;
   command?: string;
 }
 
 export interface TtsConfig {
-  provider: "auto" | "say" | "espeak" | "piper" | "openai" | "elevenlabs" | "command" | "off";
+  provider: "auto" | "local" | "say" | "espeak" | "piper" | "openai" | "elevenlabs" | "command" | "off";
   voice?: string;
   model?: string;
   command?: string;
   maxChars: number;
+}
+
+/** On-host speech with sherpa-onnx, the same models Paseo uses. */
+export interface LocalVoiceConfig {
+  enabled: boolean; // false: auto skips local speech
+  modelsDir?: string; // default ~/.config/thronectl/models/local-speech
+  stt: string; // model id, e.g. parakeet-tdt-0.6b-v2-int8
+  tts: string; // model id, e.g. kokoro-en-v0_19
+  threads: number;
+  speed: number;
 }
 
 export interface Config {
@@ -35,7 +45,7 @@ export interface Config {
   projects: string[];
   paseo: { enabled: "auto" | boolean; bin: string };
   harness: Record<string, HarnessOverride>;
-  voice: { stt: SttConfig; tts: TtsConfig; keys: Record<string, string> };
+  voice: { stt: SttConfig; tts: TtsConfig; keys: Record<string, string>; local: LocalVoiceConfig };
   notify: { desktop: boolean };
   statsMs: number;
 }
@@ -56,6 +66,7 @@ export function defaultConfig(): Config {
       stt: { provider: "auto", language: "en" },
       tts: { provider: "auto", maxChars: 600 },
       keys: {},
+      local: { enabled: true, stt: "parakeet-tdt-0.6b-v2-int8", tts: "kokoro-en-v0_19", threads: 2, speed: 1.0 },
     },
     notify: { desktop: true },
     statsMs: 2000,

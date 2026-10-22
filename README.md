@@ -23,6 +23,8 @@ From the device you can start, watch, prompt, approve and stop agents (Claude Co
 | Approvals: one key to allow, deny or comment | LED effects for each state and alert | Settings backup to any SD folder |
 | ![Absolutely Light](docs/img/theme_12.png) | ![Absolutely Dark](docs/img/theme_13.png) | ![Power](docs/img/settings_power.png) |
 | Absolutely Light (Claude-inspired) | Absolutely Dark | CPU, Wi-Fi and stats power saving |
+| ![Host settings](docs/img/host_settings.png) | ![Host speech](docs/img/host_voice.png) | ![Keys](docs/img/host_keys.png) |
+| Edit the daemon's config from the device | Local voice: install and switch on | API keys, shown masked |
 
 ## Quick start
 
@@ -192,10 +194,10 @@ Two font sizes: 40x15 (default) and 60x20 (Settings > Display > Terminal font). 
 |-------|----------|
 | Display | Theme, accent color, text size (Small, Medium or Large), brightness, dim after, dimmed brightness, screen off after, flip screen, terminal font, terminal output keeps screen on, 24-hour clock, battery percent, animations, boot splash, rotate dashboard, toast seconds |
 | Sound | Volume, alert volume, voice volume, key clicks, alert sounds, do not disturb, quiet hours, finished turns (every turn, over 30 s, over 2 min, off), approval alerts, error alerts, remind while waiting, wake on alerts, startup chime, play all chimes |
-| Voice | Read replies aloud, push to talk (hold or tap), space to talk, mic gain, send without review, host voice name, test speaker |
+| Voice | Read replies aloud, push to talk (hold or tap), space to talk, mic gain, send without review, host voice name, test speaker, host speech (local voice install and switch) |
 | LED | LED mode (off, status and alerts, alerts only), brightness, in quiet hours, with screen off, an effect for each state and alert, reset |
 | Agents | Simple mode, confirm before ending, open terminal on launch, show exited agents, default harness, clear notifications |
-| Network | Wi-Fi networks, hosts and pairing, auto-connect, device name, time zone (or from host), disconnect, reconnect |
+| Network | Wi-Fi networks, hosts and pairing, host settings, auto-connect, device name, time zone (or from host), disconnect, reconnect |
 | Keyboard | Key repeat delay and rate, shortcut list |
 | Power | CPU speed, CPU saver, Wi-Fi power save, stats when active, dimmed and screen off, battery saver at 20%, turn off at 3%, power off |
 | Device | About, check for updates, update from SD card, back up settings to SD, restore settings from SD, reset settings (keeps Wi-Fi and pairing), reboot, factory reset |
@@ -262,19 +264,29 @@ Override or add a harness in the config:
 
 Hold **G0**, talk, release. The device streams 16 kHz audio to the daemon, which transcribes it. Spoken replies come back as audio on the device speaker.
 
-Put API keys in `~/.config/thronectl/env` (one `KEY=value` per line). The daemon loads this file at start.
+**Local voice (the default).** The daemon can do speech on the host itself, with the same models Paseo uses: Parakeet TDT 0.6B for speech to text and Kokoro 82M for text to speech, run by [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). No API keys are needed and audio stays on the host. If Paseo's models are already in `~/.paseo/models/local-speech`, the daemon uses them as they are. Otherwise install them, from the host or from the device:
+
+```sh
+thronectl voice install    # about 800 MB; --tts kokoro-int8-en-v0_19 is a 103 MB voice
+thronectl voice status
+```
+
+On the device: Settings, Voice, Host speech. "Install local voice" shows the download size and the progress. "Use local voice" turns it on or off. Kokoro voices: `af`, `af_bella`, `af_nicole`, `af_sarah`, `af_sky`, `am_adam`, `am_michael`, `bf_emma`, `bf_isabella`, `bm_george`, `bm_lewis` (set one in Voice name). Speech starts when the first sentence is ready: 1 to 2 s on the ARM Linux test host. The models run in a separate process that uses about 1.9 GB of memory and exits after 5 minutes with no requests. `sherpa-onnx-node` is an optional dependency: where it does not install, the daemon falls back to the providers below. Licences: Parakeet CC-BY-4.0, Kokoro Apache-2.0, espeak-ng data GPL-3.0.
+
+Put API keys in `~/.config/thronectl/env` (one `KEY=value` per line), or set them from the device in Host settings, Keys. The daemon loads this file at start.
 
 **Speech to text**, first match wins:
 
-1. `OPENAI_API_KEY`: `gpt-4o-mini-transcribe`
-2. `GROQ_API_KEY`: `whisper-large-v3-turbo`
-3. A local command, for example whisper.cpp:
+1. Local voice, when it is installed and on
+2. `OPENAI_API_KEY`: `gpt-4o-mini-transcribe`
+3. `GROQ_API_KEY`: `whisper-large-v3-turbo`
+4. A local command, for example whisper.cpp:
 
    ```sh
    thronectl config set voice.stt.command "whisper-cli -m ~/models/ggml-base.en.bin -nt -f {wav}"
    ```
 
-**Text to speech**, first match wins: macOS `say`, OpenAI, ElevenLabs (with `voice.tts.voice` set), Piper (with `voice.tts.model` set), `espeak-ng`, or `voice.tts.command` (`{text}` and optional `{out}` placeholders). Set a voice per device in Settings > Voice > Voice name.
+**Text to speech**, first match wins: local voice, macOS `say`, OpenAI, ElevenLabs (with `voice.tts.voice` set), Piper (with `voice.tts.model` set), `espeak-ng`, or `voice.tts.command` (`{text}` and optional `{out}` placeholders). Set a voice per device in Settings > Voice > Voice name.
 
 Push a message from scripts:
 
@@ -282,6 +294,8 @@ Push a message from scripts:
 thronectl notify "Deploy finished" "prod is green" --kind done
 thronectl say "Build failed on main"
 ```
+
+**Host settings.** Settings, Network, Host settings edits the daemon's own config from the device. The groups follow `config.json`: general, network, projects, Paseo, voice, harnesses and keys. Harnesses lists each CLI as ready, missing or off. Open one to turn it off, rename it, change its command or arguments, or add your own. Keys lists API keys and other variables from `~/.config/thronectl/env`. They show masked, never in full. Enter replaces one, and an empty value removes it. Port, bind and discovery apply after "Restart daemon", which works when the daemon runs as a login service (`thronectl install`). With `allowShell` set to `false`, host settings are read-only on the device.
 
 ## Configuration
 
@@ -298,8 +312,12 @@ thronectl say "Build failed on main"
 | `projectRoots` | `~/workspace`, `~/code`, `~/Developer`, ... | Folders scanned for git repos |
 | `projects` | `[]` | Extra folders to pin in the project list |
 | `paseo.enabled` | `"auto"` | Use the Paseo CLI when it is installed |
-| `voice.stt.provider` | `"auto"` | `openai`, `groq`, `command`, `off` |
-| `voice.tts.provider` | `"auto"` | `say`, `espeak`, `piper`, `openai`, `elevenlabs`, `command`, `off` |
+| `voice.stt.provider` | `"auto"` | `local`, `openai`, `groq`, `command`, `off` |
+| `voice.tts.provider` | `"auto"` | `local`, `say`, `espeak`, `piper`, `openai`, `elevenlabs`, `command`, `off` |
+| `voice.local.enabled` | `true` | `auto` tries local voice first |
+| `voice.local.stt` | `"parakeet-tdt-0.6b-v2-int8"` | Or `parakeet-tdt-0.6b-v3-int8` (25 European languages) |
+| `voice.local.tts` | `"kokoro-en-v0_19"` | Or `kokoro-int8-en-v0_19` (smaller) |
+| `voice.local.threads`, `voice.local.speed` | `2`, `1.0` | CPU threads and speech speed |
 | `voice.tts.maxChars` | `600` | Longest reply that is read aloud |
 | `notify.desktop` | `true` | Desktop notification for pairing requests |
 | `statsMs` | `2000` | Default stats interval |

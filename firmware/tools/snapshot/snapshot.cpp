@@ -224,6 +224,13 @@ static void seed() {
     {"pid":2210,"name":"codex","cpu":6.1,"mem":1.0,"user":"dev"},{"pid":101,"name":"kernel_task","cpu":4.2,"mem":0.6,"user":"root"},
     {"pid":5512,"name":"thronectl","cpu":1.3,"mem":0.4,"user":"dev"},{"pid":901,"name":"Spotlight","cpu":0.9,"mem":0.7,"user":"dev"},{"pid":77,"name":"launchd","cpu":0.1,"mem":0.1,"user":"root"}]})J";
   link_.replies["term.open"] = R"J({"tid":1})J";
+  link_.replies["config.groups"] = R"J({"groups":[{"id":"general","label":"General","sub":"name, shell, stats"},{"id":"network","label":"Network","sub":"port, bind, discovery"},
+    {"id":"projects","label":"Projects","sub":"folders to list"},{"id":"paseo","label":"Paseo","sub":"backend"},{"id":"voice","label":"Voice","sub":"speech providers"},
+    {"id":"harnesses","label":"Harnesses","sub":"agent CLIs"},{"id":"keys","label":"Keys","sub":"API keys and env"}]})J";
+  link_.replies["config.fields"] = R"J({"fields":[{"key":"env.OPENAI_API_KEY","label":"OPENAI_API_KEY","type":"secret","value":"sk-...9fQa"},
+    {"key":"env.GROQ_API_KEY","label":"GROQ_API_KEY","type":"secret","value":""},{"key":"env.ELEVENLABS_API_KEY","label":"ELEVENLABS_API_KEY","type":"secret","value":""},
+    {"key":"env.ANTHROPIC_API_KEY","label":"ANTHROPIC_API_KEY","type":"secret","value":"sk-...k2Lw (from the daemon's environment)"},
+    {"key":"env.GEMINI_API_KEY","label":"GEMINI_API_KEY","type":"secret","value":""},{"key":"env","label":"Add a variable","type":"add","value":""}]})J";
   Settings& s = settings();
   HostEntry h;
   h.id = "9f2c1a"; h.name = "Studio MacBook"; h.addr = "192.168.1.12"; h.os = "darwin";
@@ -345,6 +352,22 @@ static void shots() {
   shot("settings_led");
   ui().handleKey(key(K_ENTER));
   shot("settings_led_standby");
+  ui().home();
+  ui().push(makeHostConfig("", "Host settings"));
+  shot("host_settings");
+  ui().home();
+  ui().push(makeHostConfig("keys", "Keys"));
+  shot("host_keys");
+  ui().home();
+  std::string keys = link_.replies["config.fields"];
+  link_.replies["config.fields"] = R"J({"fields":[{"key":"voice.localOn","label":"Use local voice","type":"bool","value":true},
+    {"key":"voice.install","label":"Installing","type":"action","value":"kokoro 42%","live":true},
+    {"key":"voice.stt.provider","label":"Speech to text","type":"choice","value":"auto","options":["auto","local","openai"]},
+    {"key":"voice.stt.model","label":"STT model","type":"text","value":""},{"key":"voice.tts.provider","label":"Text to speech","type":"choice","value":"auto","options":["auto","local"]},
+    {"key":"voice.tts.voice","label":"TTS voice","type":"text","value":"af_sky"}]})J";
+  ui().push(makeHostConfig("voice", "Host speech"));
+  shot("host_voice");
+  link_.replies["config.fields"] = keys;
   ui().home();
   ui().push(makeSdBrowser(true));
   shot("sd_backup");

@@ -1,12 +1,13 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateKeyPair } from "../src/crypto.js";
 import { Conn } from "../src/session.js";
 import { SimDevice } from "../src/sim.js";
+import { encodeWav } from "../src/voice/wav.js";
 import type { Daemon as DaemonT } from "../src/server.js";
 
 const home = mkdtempSync(join(tmpdir(), "thronectl-test-"));
@@ -205,5 +206,79 @@ test("device asks the host for an update and gets an offer it does not need to c
     assert.equal(offer.ver, info.latest);
   }
   delete process.env.THRONECTL_NO_RELEASES;
+  dev.close();
+});
+
+test("device reads and changes daemon settings, keys and harnesses", async () => {
+  const dev = new SimDevice(generateKeyPair(), "Cardputer-Config", new Map());
+  await dev.connect("127.0.0.1", port);
+  type F = { key: string; type: string; value: unknown; restart?: boolean };
+  const { groups } = await dev.call<{ groups: { id: string }[] }>("config.groups");
+  assert.ok(groups.some((g) => g.id === "keys"));
+
+  assert.deepEqual(await dev.call("config.set", { key: "name", value: "Laptop" }), { restart: false });
+  assert.equal(daemon.cfg.name, "Laptop");
+  assert.deepEqual(await dev.call("config.set", { key: "discovery", value: true }), { restart: true });
+  daemon.cfg.discovery = false;
+  await dev.call("config.set", { key: "projectRoots", value: "/tmp/a\n/tmp/b" });
+  assert.deepEqual(daemon.cfg.projectRoots, ["/tmp/a", "/tmp/b"]);
+  daemon.cfg.projectRoots = [];
+  await assert.rejects(dev.call("config.set", { key: "port", value: "x" }), /must be a number/);
+  await assert.rejects(dev.call("config.set", { key: "voice.stt.apiKey", value: "x" }), /cannot be set/);
+
+  await dev.call("config.set", { key: "env.THRONE_TEST_KEY", value: "sk-abcdefghijklmnop" });
+  assert.equal(process.env.THRONE_TEST_KEY, "sk-abcdefghijklmnop");
+  let keys = (await dev.call<{ fields: F[] }>("config.fields", { group: "keys" })).fields;
+  assert.equal(keys.find((f) => f.key === "env.THRONE_TEST_KEY")?.value, "sk-...mnop", "secrets come back masked");
+  await dev.call("config.set", { key: "env.THRONE_TEST_KEY", value: null });
+  keys = (await dev.call<{ fields: F[] }>("config.fields", { group: "keys" })).fields;
+  assert.ok(!keys.some((f) => f.key === "env.THRONE_TEST_KEY"));
+  assert.equal(process.env.THRONE_TEST_KEY, undefined);
+
+  await dev.call("config.add", { kind: "harness", id: "mytool", value: "/bin/cat" });
+  const links = (await dev.call<{ fields: F[] }>("config.fields", { group: "harnesses" })).fields;
+  assert.equal(links.find((f) => f.key === "harness:mytool")?.value, "ready");
+  await dev.call("config.set", { key: "harness.mytool.args", value: "-u" });
+  assert.deepEqual(daemon.cfg.harness.mytool.args, ["-u"]);
+  await dev.call("config.action", { key: "remove:mytool" });
+  assert.equal(daemon.cfg.harness.mytool, undefined);
+  await assert.rejects(dev.call("config.action", { key: "remove:claude" }), /only be disabled/);
+  await dev.call("config.set", { key: "voice.localOn", value: false });
+  assert.equal(daemon.cfg.voice.local.enabled, false);
+  let voice = (await dev.call<{ fields: F[] }>("config.fields", { group: "voice" })).fields;
+  assert.equal(voice.find((f) => f.key === "voice.localOn")?.value, false);
+  assert.ok(voice.some((f) => f.key === "voice.install" && f.type === "action"));
+  await dev.call("config.set", { key: "voice.localOn", value: true });
+  voice = (await dev.call<{ fields: F[] }>("config.fields", { group: "voice" })).fields;
+  assert.equal(voice.find((f) => f.key === "voice.localOn")?.value, true);
+  await dev.call("config.set", { key: "allowShell", value: false });
+  await assert.rejects(dev.call("config.set", { key: "allowShell", value: true }), /read-only/);
+  await assert.rejects(dev.call("config.add", { kind: "harness", id: "sh2", value: "/bin/sh" }), /read-only/);
+  daemon.cfg.allowShell = true;
+  dev.close();
+});
+
+test("speech streams to the device at playback pace and the reply comes before the end", async () => {
+  const wav = join(home, "tone.wav");
+  const pcm = Buffer.alloc(16000 * 2 * 3);  // 3 s at 16 kHz
+  for (let i = 0; i < pcm.length / 2; i++) pcm.writeInt16LE(Math.round(Math.sin(i / 8) * 8000), i * 2);
+  writeFileSync(wav, encodeWav(pcm, 16000));
+  const saved = structuredClone(daemon.cfg.voice.tts);
+  daemon.cfg.voice.tts = { ...saved, provider: "command", command: `cp ${JSON.stringify(wav)} {out}` };
+  const dev = new SimDevice(generateKeyPair(), "Cardputer-Speak", new Map());
+  const events: string[] = [];
+  dev.onEvent = (e, d) => { if (e === "tts") events.push((d as { state: string }).state); };
+  await dev.connect("127.0.0.1", port);
+  let bytes = 0, firstAt = 0;
+  dev.ch!.on("audio", (b: Buffer) => { bytes += b.length; firstAt ||= Date.now(); });
+  const t0 = Date.now();
+  const r = await dev.call<{ ms: number }>("tts.say", { text: "Testing the speaker now." });
+  assert.ok(r.ms > 0);
+  await until(() => events.includes("end"), 8000);
+  const took = Date.now() - t0;
+  assert.equal(bytes, pcm.length, "every sample arrives");
+  assert.ok(took >= 2400, `paced to playback, not sent at once (${took} ms)`);
+  assert.deepEqual(events, ["start", "end"]);
+  daemon.cfg.voice.tts = saved;
   dev.close();
 });

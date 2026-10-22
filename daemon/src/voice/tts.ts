@@ -4,16 +4,24 @@ import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { apiKey, type Config } from "../config.js";
 import { which } from "../env.js";
+import { localAddonOk, synthesizeLocal } from "./local/engine.js";
+import { resolveModel } from "./local/models.js";
 import { decodeWav, resample } from "./wav.js";
 
 export const DEVICE_RATE = 16000;
 
-type TtsProvider = "say" | "espeak" | "piper" | "openai" | "elevenlabs" | "command";
+type TtsProvider = "local" | "say" | "espeak" | "piper" | "openai" | "elevenlabs" | "command";
+
+/** True when sherpa-onnx loads and the configured local TTS model is installed. */
+export function localTtsReady(cfg: Config): boolean {
+  return localAddonOk().ok && resolveModel(cfg, cfg.voice.local.tts)?.model.kind === "tts";
+}
 
 export function pickTts(cfg: Config): TtsProvider | undefined {
   const t = cfg.voice.tts;
   if (t.provider === "off") return undefined;
   if (t.provider !== "auto") return t.provider;
+  if (cfg.voice.local.enabled !== false && localTtsReady(cfg)) return "local";
   if (platform() === "darwin" && which("say")) return "say";
   if (apiKey(cfg, "OPENAI_API_KEY")) return "openai";
   if (apiKey(cfg, "ELEVENLABS_API_KEY") && t.voice) return "elevenlabs";
@@ -23,7 +31,13 @@ export function pickTts(cfg: Config): TtsProvider | undefined {
 }
 
 export function describeTts(cfg: Config): string {
-  return pickTts(cfg) ?? "none (install espeak-ng or set OPENAI_API_KEY)";
+  const p = pickTts(cfg);
+  if (p !== "local") return p ?? "none (run thronectl voice install, install espeak-ng or set OPENAI_API_KEY)";
+  const id = cfg.voice.local.tts;
+  const r = resolveModel(cfg, id);
+  if (!r) return `local (${id}, not installed: run thronectl voice install)`;
+  const a = localAddonOk();
+  return a.ok ? `local (${id}${r.source === "paseo" ? ", from Paseo" : ""})` : `local (${id}, sherpa-onnx-node not available: ${a.error})`;
 }
 
 /** Makes agent output speakable: drops code blocks and markdown, cuts at a sentence boundary. */
@@ -83,11 +97,23 @@ async function postAudio(url: string, headers: Record<string, string>, body: unk
   return Buffer.from(await res.arrayBuffer());
 }
 
+/** Streams speech as 16 kHz mono PCM16: per sentence for local, one buffer for other providers. Stops when onChunk returns false. */
+export async function synthesizeStream(cfg: Config, text: string, voice: string | undefined, onChunk: (pcm16k: Buffer) => boolean): Promise<void> {
+  if (pickTts(cfg) === "local") return synthesizeLocal(cfg, text, voice ?? "", onChunk);
+  const pcm = await synthesize(cfg, text, voice);
+  if (pcm.length) onChunk(pcm);
+}
+
 /** Synthesizes speech as 16 kHz mono PCM16 for the device speaker. */
 export async function synthesize(cfg: Config, text: string, voice?: string): Promise<Buffer> {
   const t = cfg.voice.tts;
   const provider = pickTts(cfg);
   if (!provider) throw new Error("No text-to-speech provider configured");
+  if (provider === "local") {
+    const chunks: Buffer[] = [];
+    await synthesizeLocal(cfg, text, voice ?? "", (pcm) => { chunks.push(pcm); return true; });
+    return Buffer.concat(chunks);
+  }
   const v = voice || t.voice || "";
   let audio: { pcm: Buffer; rate: number };
   switch (provider) {

@@ -11,12 +11,13 @@ import { resolveHarnesses } from "./harness.js";
 import { loadIdentity } from "./identity.js";
 import { setLogLevel } from "./log.js";
 import { formatCode, type PairRequest } from "./pairing.js";
-import { configDir, paths, VERSION } from "./paths.js";
+import { configDir, paths, shortenHome, VERSION } from "./paths.js";
 import { Daemon } from "./server.js";
 import { installService, uninstallService } from "./service.js";
 import { runSim } from "./sim-repl.js";
 import { fixSpawnHelper, spawnHelpers } from "./spawn.js";
 import { cmdFlash, cmdUpdate } from "./update.js";
+import { installLocalVoice, LOCAL_MODELS, localModel, localModelIds, localVoiceStatus, resolveModel, type InstallProgress } from "./voice/local/models.js";
 import { describeStt } from "./voice/stt.js";
 import { describeTts } from "./voice/tts.js";
 
@@ -40,6 +41,8 @@ Usage: thronectl <command>   (or the short alias: throne <command>)
   scan               Find daemons on the LAN
   sim [--host H] [--port P]   Run a simulated device (for testing)
   logs               Follow the daemon log (service mode)
+  voice status       Show on-host speech (sherpa-onnx) and its models
+  voice install [--stt <id>] [--tts <id>]   Download the local speech models and use them for STT and TTS
 `;
 
 const bold = (s: string): string => (process.stdout.isTTY ? `\x1b[1m${s}\x1b[0m` : s);
@@ -162,10 +165,95 @@ async function cmdDoctor(): Promise<void> {
   console.log(`\n${bold("Paseo:")} ${paseo ? green(paseo) : dim("not installed")}`);
   console.log(`${bold("Speech-to-text:")} ${describeStt(cfg)}`);
   console.log(`${bold("Text-to-speech:")} ${describeTts(cfg)}`);
+  console.log(bold("Local voice (sherpa-onnx):"));
+  for (const line of localVoiceLines(cfg)) console.log(`  ${line}`);
   console.log(`${bold("Shell access:")} ${cfg.allowShell ? `enabled (${cfg.shell})` : "disabled"}`);
   console.log(`${bold("Terminals:")} ${ptyStatus()}`);
   const running = await controlRequest("status").then(() => true, () => false);
   console.log(`${bold("Daemon:")} ${running ? green("running") : "not running (thronectl daemon or thronectl install)"}`);
+}
+
+const mb = (n: number): string => (n / 1e6).toFixed(0);
+
+/** Local speech state: addon, the configured models, and the tools the install needs. */
+function localVoiceLines(cfg: ReturnType<typeof loadConfig>): string[] {
+  const s = localVoiceStatus(cfg);
+  const out = [s.addon
+    ? `${green("✓")} sherpa-onnx-node ${s.addonVersion ?? ""} ${dim(`(${s.platform})`)}`
+    : `${dim("✗")} sherpa-onnx-node: ${s.addonError ?? "not available"} ${dim(`(${s.platform}; run npm install in daemon/ or thronectl update)`)}`];
+  for (const [kind, m] of [["STT", s.stt], ["TTS", s.tts]] as const) {
+    out.push(m.installed
+      ? `${green("✓")} ${kind} ${m.id} ${dim(`${shortenHome(m.path ?? "")}${m.source === "paseo" ? " (Paseo)" : ""}`)}`
+      : `${dim("✗")} ${kind} ${m.id} not installed ${dim("(thronectl voice install)")}`);
+  }
+  if (!s.tar || !s.bzip2) out.push(`${dim("✗")} ${!s.tar ? "tar" : "bzip2"} is missing: the install needs it to unpack the models`);
+  if (s.installing && s.progress) out.push(`installing ${s.progress.id}: ${Math.floor((s.progress.got * 100) / s.progress.total)}%`);
+  return out;
+}
+
+function cmdVoiceStatus(): void {
+  const cfg = loadConfig();
+  console.log(bold("Local voice (sherpa-onnx):"));
+  for (const line of localVoiceLines(cfg)) console.log(`  ${line}`);
+  console.log(`  models dir: ${shortenHome(localVoiceStatus(cfg).modelsDir)}`);
+  console.log(bold("Models:"));
+  for (const m of LOCAL_MODELS) {
+    const r = resolveModel(cfg, m.id);
+    const where = r ? `${r.source === "paseo" ? "installed (Paseo)" : "installed"}` : `${mb(m.bytes)} MB download`;
+    console.log(`  ${r ? green("✓") : dim("✗")} ${m.kind} ${m.id.padEnd(26)} ${m.label} ${dim(where)}`);
+  }
+  console.log(`${bold("Speech-to-text:")} ${describeStt(cfg)}`);
+  console.log(`${bold("Text-to-speech:")} ${describeTts(cfg)}`);
+  console.log(dim("Licenses: Parakeet by NVIDIA, CC-BY-4.0. Kokoro, Apache-2.0. espeak-ng data, GPL-3.0."));
+}
+
+async function cmdVoiceInstall(args: string[]): Promise<void> {
+  const cfg = loadConfig();
+  const stt = flag(args, "--stt");
+  const tts = flag(args, "--tts");
+  for (const [kind, id] of [["stt", stt], ["tts", tts]] as const) {
+    if (id !== undefined && localModel(id)?.kind !== kind) {
+      throw new Error(`unknown ${kind.toUpperCase()} model "${id}" (choose: ${localModelIds(kind).join(", ")})`);
+    }
+  }
+  if (stt) cfg.voice.local.stt = stt;
+  if (tts) cfg.voice.local.tts = tts;
+  const s = localVoiceStatus(cfg);
+  if (!s.addon) {
+    throw new Error(`sherpa-onnx-node is not available on ${s.platform}: ${s.addonError}\n`
+      + "  Run npm install in the daemon directory (or thronectl update). Prebuilt packages exist for linux-x64, linux-arm64, macOS and Windows x64.");
+  }
+  console.log(`  sherpa-onnx-node: ok (${s.platform}, ${s.addonVersion ?? "?"})`);
+  for (const m of [s.stt, s.tts]) {
+    if (m.installed) console.log(`  ${m.id}: found in ${shortenHome(m.path ?? "")}${m.source === "paseo" ? " (Paseo)" : ""}, skipping`);
+  }
+  const tty = process.stdout.isTTY;
+  let shown = { id: "", pct: 0 };
+  const res = await installLocalVoice(cfg, (p: InstallProgress) => {
+    const pct = Math.floor((p.got * 100) / p.total);
+    const line = `  ${p.id}: downloading ${mb(p.got)}/${mb(p.total)} MB ${pct}%`;
+    if (tty) process.stdout.write(`\r${line}\x1b[K`);
+    else if (p.id !== shown.id || pct >= shown.pct + 10) { console.log(line); shown = { id: p.id, pct }; }
+    if (p.got >= p.total) process.stdout.write(`${tty ? "\n" : ""}  ${p.id}: downloaded, checking sha256 and extracting\n`);
+  });
+  if (res.installed.length) console.log(green(`  installed ${res.installed.join(", ")} in ${shortenHome(localVoiceStatus(cfg).modelsDir)}`));
+  const saved = loadConfig();
+  if (stt) setConfigValue(saved, "voice.local.stt", stt);
+  if (tts) setConfigValue(saved, "voice.local.tts", tts);
+  setConfigValue(saved, "voice.stt.provider", "local");
+  setConfigValue(saved, "voice.tts.provider", "local");
+  saveConfig(saved);
+  const reloaded = await controlRequest("reload").then(() => "daemon reloaded", () => "daemon not running");
+  console.log(`  set voice.stt.provider=local voice.tts.provider=local; ${reloaded}`);
+}
+
+async function cmdVoice(args: string[]): Promise<void> {
+  loadEnvFile();
+  adoptLoginShellPath();
+  const sub = args.shift();
+  if (sub === "install") return cmdVoiceInstall(args);
+  if (sub === "status" || sub === undefined) return cmdVoiceStatus();
+  throw new Error("usage: thronectl voice status | thronectl voice install [--stt <id>] [--tts <id>]");
 }
 
 function cmdConfig(args: string[]): void {
@@ -193,6 +281,7 @@ async function main(): Promise<void> {
     case "status": return cmdStatus();
     case "doctor": return cmdDoctor();
     case "config": return cmdConfig(args);
+    case "voice": return cmdVoice(args);
     case "install": adoptLoginShellPath(); return console.log(installService());
     case "uninstall": return console.log(uninstallService());
     case "update": case "upgrade": return cmdUpdate(args);

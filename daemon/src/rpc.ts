@@ -7,13 +7,15 @@ import { expandHome } from "./paths.js";
 import { killProc, listProcs } from "./procs.js";
 import { listProjects } from "./projects.js";
 import { canUpdateHost, latestFirmware, startHostUpdate } from "./devupdate.js";
+import { addHarness, applyField, GROUPS, groupFields, localDownloadBytes, removeHarness, setEnvVar } from "./remotecfg.js";
+import { installLocalVoice, localVoiceStatus } from "./voice/local/models.js";
 import { compareVersions, OTA_MIN_FW, type OtaStore } from "./ota.js";
 import { VERSION } from "./paths.js";
 import { KIND_JSON, KIND_MIC, KIND_OTA, KIND_SPK, type DevicePeer, type SecureChannel } from "./session.js";
 import type { Stats } from "./stats.js";
 import { PtyTerm, TermView, type TermUpdate } from "./terminal.js";
 import { transcribe } from "./voice/stt.js";
-import { DEVICE_RATE, speakable, synthesize } from "./voice/tts.js";
+import { DEVICE_RATE, speakable, synthesizeStream } from "./voice/tts.js";
 
 const log = logger("rpc");
 const MAX_MIC_BYTES = 16000 * 2 * 90;
@@ -33,6 +35,10 @@ export interface DaemonContext {
   recentCwds(): string[];
   addRecentCwd(cwd: string): void;
   ota: OtaStore;
+  /** Saves a changed config and makes it the live one. */
+  saveConfig(cfg: Config): void;
+  /** Restarts the login service soon after the reply goes out. Returns a message for the device. */
+  restart(): string;
 }
 
 type Params = Record<string, unknown>;
@@ -64,6 +70,8 @@ export function fitLines(lines: string[], maxBytes: number, maxChars: number): s
 }
 
 /** One authenticated device connection. */
+interface Player { cancelled: boolean; push(pcm: Buffer): void; end(): void }
+
 export class DeviceSession {
   readonly topics = new Set<string>();
   readonly since = Date.now();
@@ -93,6 +101,26 @@ export class DeviceSession {
   }
 
   /** Sends one JSON message, or drops it when the device could not hold it. */
+  /** Starts the local model download and tells the device when it ends. Returns the reply text. */
+  private installVoice(): string {
+    const cfg = this.ctx.cfg(), st = localVoiceStatus(cfg);
+    if (!st.addon) throw new Error(`local voice does not run on ${st.platform}: ${st.addonError ?? "sherpa-onnx-node is missing"}`);
+    if (st.installing) return "The install is already running";
+    const bytes = localDownloadBytes(cfg);
+    if (!bytes) return "The local models are already installed";
+    installLocalVoice(cfg).then(
+      () => this.event("notify", { kind: "done", title: "Local voice ready", body: `${this.ctx.host().name} can now do speech without API keys` }),
+      (e: unknown) => this.event("notify", { kind: "error", title: "Local voice install failed", body: e instanceof Error ? e.message : String(e) }),
+    );
+    log.info(`${this.device.name} started the local voice install`);
+    return `Downloading ${Math.round(bytes / 1e6)} MB on the host`;
+  }
+
+  /** A device that may change harness commands can run anything, so this follows allowShell. */
+  private configWritable(): void {
+    if (!this.ctx.cfg().allowShell) throw new Error("host settings are read-only because allowShell is false. Change them on the host");
+  }
+
   private send(msg: object, what: string): boolean {
     const body = Buffer.from(JSON.stringify(msg), "utf8");
     if (body.length > DEVICE_JSON_MAX) {
@@ -166,6 +194,39 @@ export class DeviceSession {
         return { ms: await this.say(text, str(p, "voice", false)) };
       },
       // The data goes out as one KIND_OTA frame (u32be offset, bytes) just before this reply.
+      "config.groups": () => ({ groups: GROUPS }),
+      "config.fields": (p) => ({ fields: groupFields(this.ctx.cfg(), str(p, "group")) }),
+      "config.set": (p) => {
+        this.configWritable();
+        const key = str(p, "key");
+        if (key.startsWith("env.")) {
+          setEnvVar(key.slice(4), p.value === null ? undefined : String(p.value ?? ""));
+          log.info(`${this.device.name} ${p.value === null ? "removed" : "set"} ${key.slice(4)}`);
+          return { restart: false };
+        }
+        const { cfg, restart } = applyField(structuredClone(this.ctx.cfg()), key, p.value);
+        this.ctx.saveConfig(cfg);
+        log.info(`${this.device.name} set ${key}`);
+        return { restart };
+      },
+      "config.add": (p) => {
+        this.configWritable();
+        const kind = str(p, "kind"), id = str(p, "id"), value = str(p, "value", false);
+        if (kind === "env") setEnvVar(id, value);
+        else if (kind === "harness") this.ctx.saveConfig(addHarness(structuredClone(this.ctx.cfg()), id, value));
+        else throw new Error(`cannot add "${kind}"`);
+        log.info(`${this.device.name} added ${kind} ${id}`);
+        return {};
+      },
+      "config.action": (p) => {
+        this.configWritable();
+        const key = str(p, "key");
+        if (key === "restart") return { message: this.ctx.restart() };
+        if (key === "voice.install") return { message: this.installVoice() };
+        if (!key.startsWith("remove:")) throw new Error(`no action "${key}"`);
+        this.ctx.saveConfig(removeHarness(structuredClone(this.ctx.cfg()), key.slice(7)));
+        return { message: "Removed" };
+      },
       "update.check": async (p) => {
         const { fw, note } = await latestFirmware(p.force === true);
         const cur = this.device.fw;
@@ -279,44 +340,63 @@ export class DeviceSession {
     return { tid };
   }
 
-  /** Synthesizes text and streams it to the device. Resolves with the audio length in ms. */
+  /** Streams speech to the device as it is made. Resolves once audio starts, so a long text cannot time out the call. */
   async say(text: string, voice?: string): Promise<number> {
     const cfg = this.ctx.cfg();
     const clean = speakable(text, cfg.voice.tts.maxChars);
     if (!clean) return 0;
-    const pcm = await synthesize(cfg, clean, voice);
-    this.play(pcm);
-    return Math.round((pcm.length / 2 / DEVICE_RATE) * 1000);
+    let out: Player | undefined, bytes = 0;
+    const ms = (): number => Math.round((bytes / 2 / DEVICE_RATE) * 1000);
+    return new Promise<number>((resolve, reject) => {
+      synthesizeStream(cfg, clean, voice, (pcm) => {
+        if (!out) { out = this.player(); resolve(ms() + Math.round((pcm.length / 2 / DEVICE_RATE) * 1000)); }
+        if (out.cancelled) return false;
+        out.push(pcm);
+        bytes += pcm.length;
+        return true;
+      }).then(
+        () => { out?.end(); resolve(ms()); },
+        (e: unknown) => { out?.end(); if (out) log.warn("speech stopped early", e); else reject(e); },
+      );
+    });
   }
 
-  private play(pcm: Buffer): void {
+  /** Paces PCM to the device about 400 ms ahead of playback. Audio can keep arriving until end(). */
+  private player(): Player {
     this.stopTts();
     const CHUNK = DEVICE_RATE / 10 * 2;
-    const start = Date.now();
-    let off = 0, sentMs = 0, cancelled = false;
+    let pcm = Buffer.alloc(0), off = 0, playEnd = Date.now(), ended = false;
     let timer: NodeJS.Timeout | undefined;
+    const p: Player = {
+      cancelled: false,
+      push: (b) => { pcm = Buffer.concat([pcm.subarray(off), b]); off = 0; if (!timer) pump(); },
+      end: () => { ended = true; if (!timer) pump(); },
+    };
     this.event("tts", { state: "start", rate: DEVICE_RATE });
     const pump = (): void => {
-      if (cancelled) return;
-      while (off < pcm.length && sentMs - (Date.now() - start) < 400) {
-        this.ch.sendRaw(KIND_SPK, pcm.subarray(off, off + CHUNK));
-        off += CHUNK;
-        sentMs += 100;
+      timer = undefined;
+      if (p.cancelled) return;
+      // After a gap between sentences, count from now so the device buffer does not overflow.
+      while (pcm.length - off >= (ended ? 1 : CHUNK) && playEnd - Date.now() < 400) {
+        const piece = pcm.subarray(off, off + CHUNK);
+        this.ch.sendRaw(KIND_SPK, piece);
+        off += piece.length;
+        playEnd = Math.max(playEnd, Date.now()) + (piece.length / 2 / DEVICE_RATE) * 1000;
       }
-      if (off >= pcm.length) {
-        timer = setTimeout(() => { if (!cancelled) { this.tts = undefined; this.event("tts", { state: "end" }); } }, Math.max(0, sentMs - (Date.now() - start)));
+      if (ended && off >= pcm.length) {
+        timer = setTimeout(() => { if (!p.cancelled) { this.tts = undefined; this.event("tts", { state: "end" }); } }, Math.max(0, playEnd - Date.now()));
         return;
       }
-      timer = setTimeout(pump, 40);
+      if (pcm.length - off >= (ended ? 1 : CHUNK)) timer = setTimeout(pump, 40);
     };
     this.tts = {
       cancel: () => {
-        cancelled = true;
+        p.cancelled = true;
         if (timer) clearTimeout(timer);
         this.event("tts", { state: "end" });
       },
     };
-    pump();
+    return p;
   }
 
   private stopTts(): void {

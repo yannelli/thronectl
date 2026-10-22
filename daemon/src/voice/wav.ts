@@ -84,3 +84,28 @@ export function rms(pcm: Buffer): number {
   for (let i = 0; i < n; i++) { const v = pcm.readInt16LE(i * 2) / 32768; s += v * v; }
   return Math.sqrt(s / n);
 }
+
+/** Largest absolute PCM16 sample value. */
+export function peakAbs(pcm: Buffer): number {
+  const n = Math.floor(pcm.length / 2);
+  let peak = 0;
+  for (let i = 0; i < n; i++) { const v = Math.abs(pcm.readInt16LE(i * 2)); if (v > peak) peak = v; }
+  return peak;
+}
+
+/** PCM16 to Float32 in [-1, 1], with gain and clipping. */
+export function pcm16ToFloat32(pcm: Buffer, gain = 1): Float32Array {
+  const n = Math.floor(pcm.length / 2);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = Math.max(-1, Math.min(1, (pcm.readInt16LE(i * 2) / 32768) * gain));
+  return out;
+}
+
+/** Float32 in [-1, 1] to PCM16 (clamped, scaled by 32767). */
+export function float32ToPcm16(samples: ArrayLike<number>): Buffer {
+  const out = Buffer.alloc(samples.length * 2);
+  for (let i = 0; i < samples.length; i++) {
+    out.writeInt16LE(Math.round(Math.max(-1, Math.min(1, samples[i])) * 32767), i * 2);
+  }
+  return out;
+}

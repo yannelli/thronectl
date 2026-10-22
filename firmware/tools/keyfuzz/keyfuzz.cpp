@@ -74,6 +74,14 @@ class FuzzLink : public LinkApi {
     if (s == "projects.list") return R"({"projects":[{"path":"/x","name":"x","branch":"main"}]})";
     if (s == "agent.last") return R"({"text":"hello there, this is the reply"})";
     if (s == "ota.read") return R"({"n":8192})";
+    if (s == "config.groups") return R"({"groups":[{"id":"general","label":"General","sub":"name"},{"id":"harnesses","label":"Harnesses","sub":"CLIs"}]})";
+    if (s == "config.fields")
+      return R"({"fields":[{"key":"name","label":"Host name","type":"text","value":"x"},{"key":"discovery","label":"Discovery","type":"bool","value":true,"restart":true},
+        {"key":"voice.stt.provider","label":"STT","type":"choice","value":"auto","options":["auto","local","off"]},{"key":"projects","label":"Projects","type":"list","value":"/a\n/b"},
+        {"key":"env.K","label":"K","type":"secret","value":""},{"key":"harness:pi","label":"Pi","type":"link","value":"ready"},
+        {"key":"env","label":"Add","type":"add","value":""},{"key":"remove:pi","label":"Remove","type":"action","value":""},{"key":"n","label":"N","type":"number","value":1.5}]})";
+    if (s == "config.set") return R"({"restart":true})";
+    if (s == "config.action") return R"({"message":"ok"})";
     return "{}";
   }
 };
@@ -278,6 +286,8 @@ int main(int argc, char** argv) {
     if (pick(200) == 0) app().onPtt(true);
     if (pick(150) == 0) app().onPtt(false);
     if (pick(8) == 0) randomWorld();
+    // Random keys seldom reach the deeper screens, so open them now and then.
+    if (pick(3000) == 0) ui().push(pick(2) ? makeHostConfig("", "Host settings") : makeHostConfig("keys", "Keys"));
     net_.loop();
     if (pick(4) == 0) link_.flush();
     app().loop(now);

@@ -219,8 +219,9 @@ std::vector<Item> category(int idx) {
       v.push_back(toggle("Space to talk", s.spaceTalk));
       v.push_back(choice("Mic gain", s.micGain, MIC_GAIN_OPTS));
       v.push_back(toggle("Send without review", s.autoSend));
-      v.push_back(text("Voice name", s.ttsVoice, "Host TTS voice, e.g. Samantha or alloy"));
+      v.push_back(text("Voice name", s.ttsVoice, "Host TTS voice, e.g. Samantha, alloy or af_sky"));
       v.push_back(action("Test speaker", [] { say("Throne is listening. Your agents are in good hands."); }));
+      v.push_back(action("Host speech", [] { ui().push(makeHostConfig("voice", "Host speech")); }, "local models, providers"));
       break;
     case 3:
       v.push_back(choice("LED", s.ledMode, LED_OPTS));
@@ -256,6 +257,7 @@ std::vector<Item> category(int idx) {
     case 5:
       v.push_back(action("Wi-Fi networks", [] { ui().push(makeWifi()); }));
       v.push_back(action("Hosts and pairing", [] { ui().push(makeHosts()); }));
+      v.push_back(action("Host settings", [] { ui().push(makeHostConfig("", "Host settings")); }, "edit the daemon"));
       v.push_back(toggle("Auto-connect", s.autoConnect));
       v.push_back(text("Device name", s.deviceName, "Shown on the host when pairing"));
       v.push_back(choice("Time zone", s.tz, TZ_NAMES, [&s] { if (s.tz) svc().sys->setTimezone(TZ_POSIX[s.tz]); }));

@@ -154,13 +154,18 @@ Size limits: the device has no PSRAM, so the host sends no JSON message over 32 
 | `voice.start` | `{"rate":16000}` | `{}` |
 | `voice.stop` | `{}` | `{"text":"..."}` |
 | `voice.cancel` | `{}` | `{}` |
-| `tts.say` | `{"text":"...","voice":""}` | `{}` |
+| `tts.say` | `{"text":"...","voice":""}` | `{"ms":1112}`, as soon as audio starts. `ms` is the audio sent so far |
 | `tts.stop` | `{}` | `{}` |
 | `ota.read` | `{"off":0,"n":8192}` | `{"n":8192}` (the bytes arrive first, as one kind `0x04` frame) |
 | `ota.done` | `{"ok":true,"err":"","dest":"flash"\|"sd"}` | `{}` |
 | `update.check` | `{"force":false}` | `{"fw":"0.3.0","latest":"0.4.0","source":"GitHub release v0.4.0","size":1321549,"newer":true,"linkOk":true,"host":"0.4.0","hostUpdate":true,"note":""}` |
 | `update.firmware` | `{}` | `{"version":"0.4.0","size":1321549}`, then an `ota.offer` event with `"asked":true` |
 | `update.host` | `{}` | `{"started":true,"log":"<path>"}` (runs `thronectl update --yes` on the host; the daemon restarts) |
+| `config.groups` | `{}` | `{"groups":[{"id":"general","label":"General","sub":"name, shell, stats"}]}` |
+| `config.fields` | `{"group":"general"}` | `{"fields":[Field]}`. `group` is a group id or `harness:<id>` |
+| `config.set` | `{"key":"name","value":"Laptop"}` | `{"restart":false}`. `env.<NAME>` keys write the env file; `"value":null` removes the entry |
+| `config.add` | `{"kind":"env"\|"harness","id":"MY_KEY","value":"..."}` | `{}`. For a harness, `value` is the command |
+| `config.action` | `{"key":"restart"\|"remove:<id>"}` | `{"message":"..."}`. `restart` works only when the daemon runs as a login service |
 
 ## Types
 
@@ -194,6 +199,18 @@ Size limits: the device has no PSRAM, so the host sends no JSON message over 32 
 `backend` is `direct` (the daemon runs the CLI in a PTY) or `paseo` (the daemon uses the Paseo CLI). `color` is RGB565.
 
 `Project`: `{"path":"/Users/dev/code/app","name":"app","branch":"main"}`.
+
+`Field`: `{"key":"port","label":"Port","type":"number","value":4787,"help":"","restart":true,"options":[]}`.
+
+- `type` is one of `bool`, `text`, `number`, `choice`, `list`, `secret`, `link`, `add`, `action`.
+- `list` values are one item per line. `secret` values come back masked (`sk-...9fQa`), never in full.
+- `link` opens the group named by `key`. `add` asks for an id and a value, then sends `config.add` with `kind` set to `key`.
+- `restart: true` means the change applies after the daemon restarts.
+- `live: true` means the value changes on its own (an install in progress), so the device polls the group every 2 s.
+- `confirm` (actions only) is the text the device shows before it runs the action. Without it, the action runs at once.
+- `voice.install` starts the local model download. A `notify` event tells the device when it ends.
+- The daemon accepts only the keys it lists. API keys go in the env file, not in `config.json`.
+- With `allowShell` set to `false`, every `config.*` write fails: a device that can change a harness command can run any program.
 
 `Agent`:
 
